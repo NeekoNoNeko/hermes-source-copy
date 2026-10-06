@@ -1,12 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { fixture, fakeHost, fakeContext, selectText, dispatchCopy, tick } from './helpers.js'
 
 test('production ESM bundle loads, registers and copies using SDK alone', async () => {
-  execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: process.cwd() })
   const bundle = await readFile('dist/hermes-source-copy/plugin.js', 'utf8')
   assert.equal(await readFile('plugin.js', 'utf8'), bundle)
   const info = JSON.parse(await readFile('dist/hermes-source-copy/build-info.json', 'utf8'))

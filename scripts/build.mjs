@@ -5,13 +5,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const { version } = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'))
 const out = path.join(root, 'dist', 'hermes-source-copy')
 await mkdir(out, { recursive: true })
 const result = await build({
   absWorkingDir: root, entryPoints: ['src/plugin.js'], outfile: path.join(out, 'plugin.js'),
   bundle: true, platform: 'browser', format: 'esm', target: 'es2022', minify: false,
   external: ['@hermes/plugin-sdk', 'react', 'react/jsx-runtime'], metafile: true,
-  legalComments: 'eof', banner: { js: '// Hermes Source Copy 1.0.0 — MIT — built for Hermes Desktop ac28abc96c' }
+  legalComments: 'eof', banner: { js: `// Hermes Source Copy ${version} — MIT — built for Hermes Desktop ac28abc96c` }
 })
 const imports = Object.values(result.metafile.outputs).flatMap(output => output.imports)
 if (imports.some(item => !['@hermes/plugin-sdk', 'react', 'react/jsx-runtime'].includes(item.path))) throw new Error('Unsupported runtime import in plugin')
@@ -32,7 +33,7 @@ await writeFile(path.join(out, 'THIRD_PARTY_NOTICES.txt'), notices.join('\n'))
 await writeFile(path.join(root, 'THIRD_PARTY_NOTICES.txt'), notices.join('\n'))
 await writeFile(path.join(out, 'SHA256.txt'), `${createHash('sha256').update(bytes).digest('hex')}  plugin.js\n`)
 await writeFile(path.join(out, 'build-info.json'), JSON.stringify({
-  id: 'hermes-source-copy', version: '1.0.0', hermesBaseline: 'ac28abc96c',
+  id: 'hermes-source-copy', version, hermesBaseline: 'ac28abc96c',
   sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length
 }, null, 2) + '\n')
 console.log(`Built dist/hermes-source-copy/plugin.js (${bytes.length} bytes); runtime imports verified.`)

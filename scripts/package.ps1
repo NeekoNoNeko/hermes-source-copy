@@ -2,6 +2,8 @@
 param()
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$packageVersion = (Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json).version
+if ($packageVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version.' }
 $artifactRoot = Join-Path $projectRoot 'artifacts'
 $stage = Join-Path $artifactRoot ('release-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path (Join-Path $stage 'scripts') -Force | Out-Null
@@ -9,7 +11,8 @@ New-Item -ItemType Directory -Path (Join-Path $stage 'dist') -Force | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot 'dist\hermes-source-copy') -Destination (Join-Path $stage 'dist\hermes-source-copy') -Recurse
 foreach ($name in @('README.md', 'README.zh-CN.md', 'LICENSE', 'VERIFICATION.md', 'SECURITY.md', 'plugin.js', 'THIRD_PARTY_NOTICES.txt')) { Copy-Item -LiteralPath (Join-Path $projectRoot $name) -Destination (Join-Path $stage $name) }
 foreach ($name in @('install.ps1', 'uninstall.ps1', 'path-safety.ps1')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination (Join-Path $stage "scripts\$name") }
-$zip = Join-Path $artifactRoot 'hermes-source-copy-1.0.0.zip'
+$zipName = "hermes-source-copy-$packageVersion.zip"
+$zip = Join-Path $artifactRoot $zipName
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.IO.Compression
 if (Test-Path -LiteralPath $zip) { Remove-Item -LiteralPath $zip -Force }
@@ -24,7 +27,7 @@ $stream = [IO.File]::OpenRead($zip)
 $algorithm = [Security.Cryptography.SHA256]::Create()
 try { $hash = ([BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace('-', '').ToLowerInvariant() }
 finally { $algorithm.Dispose(); $stream.Dispose() }
-Set-Content -LiteralPath (Join-Path $artifactRoot 'hermes-source-copy-1.0.0.sha256') -Value "$hash  hermes-source-copy-1.0.0.zip" -Encoding ASCII
+Set-Content -LiteralPath (Join-Path $artifactRoot "hermes-source-copy-$packageVersion.sha256") -Value "$hash  $zipName" -Encoding ASCII
 $resolvedStage = (Resolve-Path -LiteralPath $stage).Path
 $resolvedArtifacts = (Resolve-Path -LiteralPath $artifactRoot).Path
 if ([IO.Path]::GetDirectoryName($resolvedStage) -ne $resolvedArtifacts -or -not [IO.Path]::GetFileName($resolvedStage).StartsWith('release-')) { throw 'Refusing to remove unexpected package staging path.' }

@@ -1,5 +1,5 @@
 import { extractSource, MappingError } from './source-map.js'
-import { SELECTORS, describeSelection, matchHistory, projectMessage, selectedTokenSpan } from './dom-adapter.js'
+import { SELECTORS, describeSelection, matchHistory, projectMessage, projectMessageParts, selectedTokenSpan, unitIntersects } from './dom-adapter.js'
 import { captureScope, sameScope, scopeOwnsSurface, createHistoryCache } from './history.js'
 import { createRawDialog } from './raw-dialog.js'
 
@@ -32,16 +32,21 @@ export function startController(host, ctx, { doc = document, win = window } = {}
     if (selection.error) throw new MappingError(selection.error)
     if (!scopeOwnsSurface(host, target, selection.surface)) throw new MappingError('选区的会话归属尚未确认')
     if (selection.selected.some(p => p.root.querySelector('[data-message-streaming="true"]'))) throw new MappingError('消息仍在生成，请完成后再复制')
-    const visible = [...selection.surface.querySelectorAll(SELECTORS.message)].flatMap(root => {
+    const hasSource = projection => rows.some(row => row.role === projection.role && row.model?.signature === projection.signature)
+    const projections = [...selection.surface.querySelectorAll(SELECTORS.message)].flatMap(root => {
       try {
         const projection = projectMessage(root)
-        return rows.some(row => row.role === projection.role && row.model?.signature === projection.signature) ? [projection] : []
+        return hasSource(projection) ? [projection] : projectMessageParts(root, projection)
       } catch { return [] }
     })
+    const visible = projections.filter(hasSource)
     const matched = matchHistory(visible, rows)
     const selectedRows = []
-    const pieces = selection.selected.map(projection => {
-      const index = visible.findIndex(p => p.root === projection.root)
+    const selected = projections.filter(p => selection.selected.some(s => s.root === p.root) &&
+      p.tokens.some(t => t.members.some(unit => unitIntersects(selection.range, unit))))
+    if (!selected.length) throw new MappingError('消息与原文无法唯一匹配')
+    const pieces = selected.map(projection => {
+      const index = visible.indexOf(projection)
       const row = matched[index]
       if (!row?.model) throw new MappingError('消息与原文无法唯一匹配')
       selectedRows.push(row)

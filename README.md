@@ -16,6 +16,8 @@ Alternatively: [Install in Hermes](hermes://plugin/install?repo=NeekoNoNeko/herm
 
 The repository includes a **prebuilt root `plugin.js`**, which the official installer detects as a standalone Desktop plugin. Git installation needs Git, but no Node.js, npm build, Python, or API key. There is no Agent plugin manifest. This is a Git-installable community repository; it does not claim inclusion in the official catalog. See the [official Git installation guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins).
 
+**Updating from v1.0.0:** install from the same Git URL with **force reinstall** enabled. v1.0.1 fixes widespread false mismatches caused by ephemeral renderer timestamps, supports multiple assistant text parts merged around tools, and excludes tool/reasoning Markdown from the body. Matching still requires exact source and provable display order; unresolved duplicate messages use the source window.
+
 ## Copy rules and limits
 
 - Plain text retains source characters, escapes, and internal whitespace and line breaks.
@@ -86,6 +88,6 @@ Build produces identical root `plugin.js` and `dist/hermes-source-copy/plugin.js
 
 Tests use real remark/KaTeX DOM to compare source character by character, and cover repeated content, nested formats, four math delimiters, reverse/cross-message selection, streaming, routing, stale replies, cleanup, source-window injection, bundle loading, and Windows installation/backup/uninstallation with link rejection. See [VERIFICATION.md](VERIFICATION.md) for actual results and limits.
 
-Live Hermes UI, OS clipboard, and real remote gateways still need manual acceptance tests. After installation, copy bold text, all four math delimiters, repeated paragraphs, and a table into a plain-text editor. Check input/terminal copying too, and repeat after upgrading Hermes.
+v1.0.1 was also checked against visible messages in a running baseline Hermes window using synthetic copy events, including a previously failing math answer and a merged later text part. Native clipboard writing of the resulting formula was compared character for character through the SDK. Physical Ctrl+C/Cmd+C events, a real remote gateway, and other platforms still need manual acceptance tests. After installation, copy bold text, all four math delimiters, repeated paragraphs, and a table into a plain-text editor. Check input/terminal copying too, and repeat after upgrading Hermes.
 
 MIT licensed. Bundled licenses: [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).

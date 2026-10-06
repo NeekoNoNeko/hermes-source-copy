@@ -1,4 +1,4 @@
-// Hermes Source Copy 1.0.0 — MIT — built for Hermes Desktop ac28abc96c
+// Hermes Source Copy 1.0.1 — MIT — built for Hermes Desktop ac28abc96c
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -11160,14 +11160,15 @@ function unitIntersects(range, unit) {
   }
   return pointCompare(doc, node2, to, range.startContainer, range.startOffset) > 0 && pointCompare(doc, node2, from, range.endContainer, range.endOffset) < 0;
 }
-function projectMessage(root2) {
+function projectMessage(root2, bodyOverride) {
   const role = root2.getAttribute("data-role") || (root2.matches('[data-slot="aui_user-message-root"]') ? "user" : "assistant");
   let bodies;
   if (role === "user") bodies = [...root2.querySelectorAll(SELECTORS.userBody)];
   else {
     const content3 = root2.querySelector(SELECTORS.assistantBody);
-    bodies = content3 ? [...content3.querySelectorAll(SELECTORS.markdown)].filter((el) => !el.closest('[data-slot="aui_thinking-disclosure"], [data-slot="aui_reasoning-text"], [data-slot="aui_thinking-body"]')) : [];
+    bodies = content3 ? [...content3.querySelectorAll(SELECTORS.markdown)].filter((el) => !el.closest(SELECTORS.excluded) && el.closest(SELECTORS.message) === root2 && !el.parentElement.closest(SELECTORS.markdown)) : [];
   }
+  if (bodyOverride) bodies = bodyOverride;
   if (!bodies.length) throw new MappingError("\u5F53\u524D\u6D88\u606F\u6B63\u6587\u7ED3\u6784\u4E0D\u53D7\u652F\u6301");
   const units = [];
   const separator = () => units.push({ kind: "text", value: "\n", synthetic: true });
@@ -11208,6 +11209,9 @@ function projectMessage(root2) {
   }
   const tokens = normalizeUnits(units);
   return { root: root2, bodies, role, tokens, signature: JSON.stringify(tokens.map((t) => t.key)), messageId: root2.getAttribute("data-message-id") };
+}
+function projectMessageParts(root2, whole = projectMessage(root2)) {
+  return whole.role === "user" || whole.bodies.length < 2 ? [whole] : whole.bodies.map((body) => projectMessage(root2, [body]));
 }
 function describeSelection(doc) {
   const selection = doc.getSelection();
@@ -11252,10 +11256,8 @@ function selectedTokenSpan(projection, range) {
 }
 function matchHistory(visible, history) {
   const candidates = visible.map((p) => {
-    const idStamp = p.messageId?.match(/^([\d.]+)-\d+-(?:user|assistant)$/)?.[1];
     return history.flatMap((h, index2) => {
       if (h.role !== p.role || h.model?.signature !== p.signature) return [];
-      if (idStamp && h.timestamp && Number(idStamp) !== Number(h.timestamp)) return [];
       return [index2];
     });
   });
@@ -11546,18 +11548,22 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
     if (selection.error) throw new MappingError(selection.error);
     if (!scopeOwnsSurface(host2, target, selection.surface)) throw new MappingError("\u9009\u533A\u7684\u4F1A\u8BDD\u5F52\u5C5E\u5C1A\u672A\u786E\u8BA4");
     if (selection.selected.some((p) => p.root.querySelector('[data-message-streaming="true"]'))) throw new MappingError("\u6D88\u606F\u4ECD\u5728\u751F\u6210\uFF0C\u8BF7\u5B8C\u6210\u540E\u518D\u590D\u5236");
-    const visible = [...selection.surface.querySelectorAll(SELECTORS.message)].flatMap((root2) => {
+    const hasSource = (projection) => rows.some((row) => row.role === projection.role && row.model?.signature === projection.signature);
+    const projections = [...selection.surface.querySelectorAll(SELECTORS.message)].flatMap((root2) => {
       try {
         const projection = projectMessage(root2);
-        return rows.some((row) => row.role === projection.role && row.model?.signature === projection.signature) ? [projection] : [];
+        return hasSource(projection) ? [projection] : projectMessageParts(root2, projection);
       } catch {
         return [];
       }
     });
+    const visible = projections.filter(hasSource);
     const matched = matchHistory(visible, rows);
     const selectedRows = [];
-    const pieces = selection.selected.map((projection) => {
-      const index2 = visible.findIndex((p) => p.root === projection.root);
+    const selected = projections.filter((p) => selection.selected.some((s) => s.root === p.root) && p.tokens.some((t) => t.members.some((unit) => unitIntersects(selection.range, unit))));
+    if (!selected.length) throw new MappingError("\u6D88\u606F\u4E0E\u539F\u6587\u65E0\u6CD5\u552F\u4E00\u5339\u914D");
+    const pieces = selected.map((projection) => {
+      const index2 = visible.indexOf(projection);
       const row = matched[index2];
       if (!row?.model) throw new MappingError("\u6D88\u606F\u4E0E\u539F\u6587\u65E0\u6CD5\u552F\u4E00\u5339\u914D");
       selectedRows.push(row);

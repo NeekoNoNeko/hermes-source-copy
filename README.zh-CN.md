@@ -16,6 +16,8 @@
 
 仓库根目录包含**预先打包的 `plugin.js`**，官方安装器据此识别独立 Desktop 插件。从 Git 安装需要 Git，但无需 Node.js、npm 构建、Python 或 API 密钥。仓库不含 Agent 插件清单。这是可通过 Git 安装的社区仓库，并不代表已被官方目录收录。参见[官方 Git 安装说明](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins)。
 
+**从 v1.0.0 更新：**使用同一个 Git 地址安装，开启 **force reinstall（强制重装）**。v1.0.1 修复界面临时时间戳导致的大量误判，支持工具调用前后被合并显示的多段回答，并排除工具/推理区 Markdown。仍要求原文准确匹配且显示顺序可证明；无法确定位置的重复消息进入源码窗口。
+
 ## 复制规则与边界
 
 - 普通文字保留原文字符、转义、选区内部空格和换行。
@@ -86,6 +88,6 @@ npm run package  # 仅 Windows
 
 测试用真实 remark/KaTeX DOM 逐字符核对结果，覆盖重复内容、嵌套格式、四种公式、反向/跨消息选择、流式输出、连接路由、过期结果、清理、源码窗口注入、生产包加载，以及 Windows 安装/备份/卸载和链接拒绝。实际结果和限制见 [VERIFICATION.md](VERIFICATION.md)。
 
-真实 Hermes 界面、系统剪贴板及远程网关仍需人工验收。安装后将加粗文字、四种公式、重复段落和表格复制到纯文本编辑器核对，并确认输入框/终端照常复制；升级 Hermes 后再次检查。
+v1.0.1 还在正在运行的基线 Hermes 窗口中用合成复制事件验证了可见消息，覆盖此前失败的数学回答和合并回答中的后段。产生的公式通过 SDK 写入系统剪贴板，逐字符比较通过。物理 Ctrl+C/Cmd+C 按键、真实远程网关及其他平台仍需人工验收。安装后将加粗文字、四种公式、重复段落和表格复制到纯文本编辑器核对，并确认输入框/终端照常复制；升级 Hermes 后再次检查。
 
 MIT 许可证。打包依赖许可见 [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)。

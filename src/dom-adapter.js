@@ -35,14 +35,17 @@ export function unitIntersects(range, unit) {
     pointCompare(doc, node, from, range.endContainer, range.endOffset) < 0
 }
 
-export function projectMessage(root) {
+export function projectMessage(root, bodyOverride) {
   const role = root.getAttribute('data-role') || (root.matches('[data-slot="aui_user-message-root"]') ? 'user' : 'assistant')
   let bodies
   if (role === 'user') bodies = [...root.querySelectorAll(SELECTORS.userBody)]
   else {
     const content = root.querySelector(SELECTORS.assistantBody)
-    bodies = content ? [...content.querySelectorAll(SELECTORS.markdown)].filter(el => !el.closest('[data-slot="aui_thinking-disclosure"], [data-slot="aui_reasoning-text"], [data-slot="aui_thinking-body"]')) : []
+    bodies = content ? [...content.querySelectorAll(SELECTORS.markdown)].filter(el =>
+      !el.closest(SELECTORS.excluded) && el.closest(SELECTORS.message) === root &&
+      !el.parentElement.closest(SELECTORS.markdown)) : []
   }
+  if (bodyOverride) bodies = bodyOverride
   if (!bodies.length) throw new MappingError('当前消息正文结构不受支持')
   const units = []
   const separator = () => units.push({ kind: 'text', value: '\n', synthetic: true })
@@ -74,6 +77,12 @@ export function projectMessage(root) {
   for (const body of bodies) { separator(); walk(body); separator() }
   const tokens = normalizeUnits(units)
   return { root, bodies, role, tokens, signature: JSON.stringify(tokens.map(t => t.key)), messageId: root.getAttribute('data-message-id') }
+}
+
+// Hermes can merge several persisted assistant rows around tool calls into one
+// rendered root. Each text part still has its own Markdown body and source.
+export function projectMessageParts(root, whole = projectMessage(root)) {
+  return whole.role === 'user' || whole.bodies.length < 2 ? [whole] : whole.bodies.map(body => projectMessage(root, [body]))
 }
 
 export function describeSelection(doc) {
@@ -126,10 +135,11 @@ export function selectedTokenSpan(projection, range) {
 // Multiple valid embeddings are ambiguous, including repeated identical text.
 export function matchHistory(visible, history) {
   const candidates = visible.map(p => {
-    const idStamp = p.messageId?.match(/^([\d.]+)-\d+-(?:user|assistant)$/)?.[1]
+    // Renderer ids use live/earliest-part timing, which can differ from the
+    // durable row's time. They cannot prove identity, even for duplicates.
+    // Use exact source signatures and the complete visible display order.
     return history.flatMap((h, index) => {
       if (h.role !== p.role || h.model?.signature !== p.signature) return []
-      if (idStamp && h.timestamp && Number(idStamp) !== Number(h.timestamp)) return []
       return [index]
     })
   })

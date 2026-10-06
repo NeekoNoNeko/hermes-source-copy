@@ -44,6 +44,81 @@ test('ordered visible context disambiguates repeated history', () => {
   assert.deepEqual(matchHistory(visible, history).map(row => row.text), ['锚点', '重复'])
 })
 
+test('ephemeral renderer timestamp cannot reject exact source or poison other messages', async () => {
+  const f = await controllerFixture('**唯一回答**', [
+    { role: 'assistant', text: '**唯一回答**', timestamp: 100.25 },
+    { role: 'assistant', text: '__另一条__', timestamp: 200 }
+  ])
+  f.root.setAttribute('data-message-id', '100.12-0-assistant')
+  const second = f.root.cloneNode(true)
+  second.setAttribute('data-message-id', '200-1-assistant')
+  second.querySelector('.aui-md').innerHTML = '<p><strong>另一条</strong></p>'
+  f.root.parentElement.append(second)
+  selectText(f.doc, '唯一回答')
+  assert.equal(dispatchCopy(f).data.get('text/plain'), '**唯一回答**')
+  const node = second.querySelector('strong').firstChild
+  selectPoints(f.doc, node, 0, node, node.length)
+  assert.equal(dispatchCopy(f).data.get('text/plain'), '__另一条__')
+  f.ctx.dispose()
+})
+
+test('ephemeral timestamps cannot resolve duplicate ambiguity; visible position can', () => {
+  const history = ['**相同**', '__相同__'].map((text, index) => ({ role: 'assistant', timestamp: index + 1, model: parseSource(text), text }))
+  const signature = parseSource('相同').signature
+  assert.equal(matchHistory([{ role: 'assistant', signature, messageId: '2-0-assistant' }], history)[0], null)
+  assert.equal(matchHistory([{ role: 'assistant', signature, messageId: '9-0-assistant' }], history)[0], null)
+  assert.deepEqual(matchHistory([
+    { role: 'assistant', signature, messageId: '2-0-assistant' },
+    { role: 'assistant', signature, messageId: '1-1-assistant' }
+  ], history).map(row => row.text), ['**相同**', '__相同__'])
+})
+
+test('one rendered assistant root maps multiple persisted text parts around tools', async () => {
+  const f = await controllerFixture('**前段文字**', [
+    { role: 'assistant', text: '**前段文字**', timestamp: 1 },
+    { role: 'tool', text: 'private tool output' },
+    { role: 'assistant', text: '__后段文字__', timestamp: 3 }
+  ])
+  f.root.setAttribute('data-message-id', '1-0-assistant')
+  const content = f.root.querySelector('[data-slot="aui_assistant-message-content"]')
+  const scaffold = f.doc.createElement('div')
+  scaffold.setAttribute('data-conversation-scaffold', '')
+  scaffold.innerHTML = '<div class="aui-md"><p>private tool output</p></div>'
+  const second = f.doc.createElement('div')
+  second.className = 'aui-md'; second.innerHTML = '<p><strong>后段文字</strong></p>'
+  content.append(scaffold, second)
+  selectPoints(f.doc, second.querySelector('strong').firstChild, 2, second.querySelector('strong').firstChild, 4)
+  assert.equal(dispatchCopy(f).data.get('text/plain'), '__文字__')
+  selectPoints(f.doc, f.root.querySelector('strong').firstChild, 0, second.querySelector('strong').firstChild, 4)
+  assert.equal(dispatchCopy(f).data.get('text/plain'), '**前段文字**\n\n__后段文字__')
+  f.ctx.dispose()
+})
+
+test('a selected unmatched text part is never silently omitted from merged copying', async () => {
+  const f = await controllerFixture('**前段文字**')
+  const second = f.doc.createElement('div')
+  second.className = 'aui-md'; second.innerHTML = '<p>尚未持久化的文字</p>'
+  f.root.querySelector('[data-slot="aui_assistant-message-content"]').append(second)
+  const pending = second.querySelector('p').firstChild
+  selectPoints(f.doc, f.root.querySelector('strong').firstChild, 0, pending, pending.length)
+  assert.equal(dispatchCopy(f).data.get('text/plain'), 'previous clipboard')
+  assert.ok(f.doc.querySelector('[data-source-copy-dialog]'))
+  f.ctx.dispose()
+})
+
+test('Markdown in excluded ancestor is not mistaken for assistant body', async () => {
+  const f = await controllerFixture('__真正正文__')
+  const scaffold = f.doc.createElement('div')
+  scaffold.setAttribute('data-conversation-scaffold', '')
+  scaffold.innerHTML = '<div class="aui-md"><p>工具详情正文</p></div>'
+  f.root.querySelector('[data-slot="aui_assistant-message-content"]').prepend(scaffold)
+  selectPoints(f.doc, f.root.querySelector('strong').firstChild, 0, f.root.querySelector('strong').firstChild, 4)
+  assert.equal(dispatchCopy(f).data.get('text/plain'), '__真正正文__')
+  selectPoints(f.doc, scaffold.querySelector('p').firstChild, 0, scaffold.querySelector('p').firstChild, 6)
+  assert.equal(dispatchCopy(f).event.defaultPrevented, false)
+  f.ctx.dispose()
+})
+
 test('raw view is usable while source mapping fails', async () => {
   const f = await controllerFixture('文字')
   f.root.querySelector('.aui-md').innerHTML = '<span>改写后的文字</span>'

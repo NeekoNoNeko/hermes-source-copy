@@ -1,6 +1,6 @@
 {
   "name": "hermes-source-copy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Copy original Markdown and LaTeX selections in Hermes Desktop",
@@ -11,8 +11,9 @@
   "engines": { "node": ">=22" },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "pretest": "node scripts/build.mjs",
     "test": "node --test test/*.test.js",
-    "check": "npm run test && npm run build",
+    "check": "npm run test",
     "package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1"
   },
   "dependencies": {
@@ -25,9 +26,10 @@
   "devDependencies": {
     "esbuild": "^0.25.10",
     "jsdom": "^26.1.0",
-    "katex": "^0.16.22",
+    "katex": "^0.18.2",
     "remark-rehype": "^11.1.2",
     "rehype-stringify": "^10.0.1",
     "rehype-katex": "^7.0.1"
-  }
+  },
+  "overrides": { "katex": "$katex" }
 }

@@ -13,6 +13,8 @@ Reviewed first-party runtime source, build/package/install/uninstall scripts, th
 - Windows scripts reject reparse points in ancestors and nested plugin entries. Tests verify refusing a nested junction without modifying its external target. Uninstall checks the exact plugin path. Update backups remain on disk and can contain the previous plugin package.
 - `npm audit --registry=https://registry.npmjs.org` reported **0 known vulnerabilities**, including development dependencies, on the review date. The configured mirror lacked audit support; the official registry was used explicitly.
 - Publication excludes local caches, chat data, credentials, logs, node_modules, and release staging. Runtime imports are limited to the SDK. Dependency versions/integrity are locked and bundled licenses included.
+- v1.0.1 re-audit found a KaTeX advisory that the earlier audit response did not report. Updated KaTeX to the patched 0.18.2-or-later line and overrode transitive copies; all regression tests and the official-registry audit pass. See [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7). KaTeX rendering code is not in this plugin's runtime bundle; Hermes renders formulas itself. This does not modify or audit the client's own KaTeX version.
+- Live troubleshooting used temporary loopback-only diagnostics containing counts, lengths, and result categories, never message bodies. The server was closed and instrumentation removed; none is in the repository or release. The supplied user example stayed in an ignored local cache. Public renderer regression fixtures contain synthetic text only.
 
 No unresolved security/privacy issue was found within this scope. This is code review and automated regression checking, **not a penetration test or a guarantee of no vulnerabilities**.
 
@@ -24,7 +26,7 @@ Hermes owns remote transport, authentication, and response filtering; these are 
 
 Install/uninstall is not race-proof against concurrent path modification. Use trusted directories, prevent concurrent changes, and avoid unnecessary elevation. Git installation uses Hermes's own installer.
 
-Live client UI, OS clipboard, actual remote gateways, and platform integrations are outside the automated DOM/SDK tests. OS clipboard managers and paste destinations may retain copied message content.
+The regression suite does not fully validate live client UI, physical keyboard events, remote gateways, or platform integrations. A focused v1.0.1 local check additionally used synthetic copy events in the running client and verified one SDK clipboard write. OS clipboard managers and paste destinations may retain copied message content.
 
 Report vulnerabilities privately through GitHub **Security → Report a vulnerability** for this repository. If unavailable, open an issue asking for a private reporting channel without sensitive content or exploit details. Never attach real transcripts, credentials, or connection secrets.
 
@@ -32,4 +34,4 @@ Report vulnerabilities privately through GitHub **Security → Report a vulnerab
 
 审查了运行时源码、构建及安装/卸载脚本、生产 ESM 包、依赖漏洞报告和拟公开文件，在该范围内未发现未解决的安全或隐私问题。修复了暂停/切换时的缓存保留、过量元数据保留、网关错误详情展示和安装路径链接风险，补充了回归测试。官方 npm registry 审计报告为 0 个已知漏洞（含开发依赖）。
 
-这不是无漏洞保证。Hermes 插件没有沙箱；连接和鉴权由 Hermes 管理。接口返回当前会话可见正文；释放缓存引用不保证物理内存清零。安装脚本不能防御其他程序同时篡改路径。真实客户端、系统剪贴板和远程网关尚未人工验收。请通过私密漏洞报告渠道反馈，勿公开聊天内容或密钥；渠道不可用时，仅发 issue 询问私密渠道。
+这不是无漏洞保证。Hermes 插件没有沙箱；连接和鉴权由 Hermes 管理。接口返回当前会话可见正文；释放缓存引用不保证物理内存清零。安装脚本不能防御其他程序同时篡改路径。v1.0.1 补充了本机窗口合成复制事件及一次 SDK 系统剪贴板验证，但不等同于全场景验收；物理键盘事件、远程网关和其他平台尚未验证。再次审计后同步更新 KaTeX 及传递依赖，审计为 0 个已知漏洞；不修改客户端自身的 KaTeX。临时诊断代码与用户样例不公开发布。请通过私密漏洞报告渠道反馈，勿公开聊天内容或密钥；渠道不可用时，仅发 issue 询问私密渠道。

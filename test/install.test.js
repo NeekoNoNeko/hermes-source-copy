@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 test('PowerShell install, verified update backup and scoped uninstall', { skip: process.platform !== 'win32' }, async () => {
-  execFileSync(process.execPath, ['scripts/build.mjs'])
   const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'hermes-source-copy-test-'))
   const home = path.join(temporaryRoot, 'Hermes 数据 with spaces')
   const plugin = path.join(home, 'desktop-plugins', 'hermes-source-copy')
