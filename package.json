@@ -1,14 +1,21 @@
 {
   "name": "hermes-source-copy",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "type": "module",
   "description": "Copy original Markdown and LaTeX selections in Hermes Desktop",
-  "repository": { "type": "git", "url": "https://github.com/NeekoNoNeko/hermes-source-copy.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NeekoNoNeko/hermes-source-copy.git"
+  },
   "homepage": "https://github.com/NeekoNoNeko/hermes-source-copy",
-  "bugs": { "url": "https://github.com/NeekoNoNeko/hermes-source-copy/issues" },
+  "bugs": {
+    "url": "https://github.com/NeekoNoNeko/hermes-source-copy/issues"
+  },
   "license": "MIT",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "pretest": "node scripts/build.mjs",
@@ -31,5 +38,7 @@
     "rehype-stringify": "^10.0.1",
     "rehype-katex": "^7.0.1"
   },
-  "overrides": { "katex": "$katex" }
+  "overrides": {
+    "katex": "$katex"
+  }
 }

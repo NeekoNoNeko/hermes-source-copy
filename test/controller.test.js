@@ -14,6 +14,143 @@ async function controllerFixture(source, rows = [{ role: 'assistant', text: sour
   return { ...f, ...mock, ctx, controller }
 }
 
+async function openSelectionMenu(f, label = '复制') {
+  const target = f.doc.getSelection().anchorNode.parentElement
+  target.dispatchEvent(new f.win.MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+  const menu = f.doc.createElement('div')
+  menu.setAttribute('data-slot', 'dropdown-menu-content'); menu.setAttribute('role', 'menu')
+  menu.innerHTML = '<div data-slot="dropdown-menu-item" role="menuitem"><i class="codicon codicon-copy" aria-hidden="true"></i><span></span></div>'
+  menu.querySelector('span').textContent = label
+  f.doc.body.append(menu)
+  // Model the native Radix focus trap losing the document selection.
+  f.doc.getSelection().removeAllRanges()
+  menu.addEventListener('keydown', event => { if (event.key === 'Escape') menu.remove() })
+  await tick()
+  return { menu, item: menu.firstElementChild }
+}
+
+for (const [label, action] of [['复制', 'click'], ['Copy', 'Enter'], ['複製', ' ']]) {
+  test(`original context-menu ${label}/${action} copies source after focus loss and blocks the native plain-text writer`, async () => {
+    const f = await controllerFixture('__一段文字__')
+    const writes = []
+    f.ctx.os.writeClipboard = async text => { writes.push(text); return true }
+    let native = 0
+    f.doc.addEventListener(action === 'click' ? 'click' : 'keydown', event => { if (action === 'click' || event.key === action) native++ })
+    selectText(f.doc, '文字')
+    const { item, menu } = await openSelectionMenu(f, label)
+    const event = action === 'click' ? new f.win.MouseEvent('click', { bubbles: true, cancelable: true }) :
+      new f.win.KeyboardEvent('keydown', { key: action, bubbles: true, cancelable: true })
+    item.dispatchEvent(event)
+    await tick()
+    assert.equal(event.defaultPrevented, true)
+    assert.deepEqual(writes, ['__文字__'])
+    assert.equal(native, 0)
+    assert.equal(menu.isConnected, false)
+    f.ctx.dispose()
+  })
+}
+
+test('right-click formula copies original delimiters, including partial selection in an error span', async () => {
+  const source = '**$\\frac{x}{ $**'
+  const f = await controllerFixture(source)
+  f.root.querySelector('.aui-md').innerHTML = '<p><strong><span class="katex-error" title="untrusted error details">\\frac{x}{ </span></strong></p>'
+  const writes = []
+  f.ctx.os.writeClipboard = async text => { writes.push(text); return true }
+  const node = f.root.querySelector('.katex-error').firstChild
+  selectPoints(f.doc, node, 2, node, 3)
+  const { item } = await openSelectionMenu(f)
+  item.click(); await tick()
+  assert.deepEqual(writes, [source])
+  f.ctx.dispose()
+})
+
+test('right-click unready source blocks native write and opens the raw window', async () => {
+  let resolve
+  const f = await controllerFixture('**正文**', undefined, () => new Promise(r => { resolve = r }))
+  const writes = []
+  f.ctx.os.writeClipboard = async text => { writes.push(text); return true }
+  selectText(f.doc, '正文')
+  const { item } = await openSelectionMenu(f)
+  const event = new f.win.MouseEvent('click', { bubbles: true, cancelable: true }); item.dispatchEvent(event)
+  assert.equal(event.defaultPrevented, true)
+  assert.deepEqual(writes, [])
+  assert.ok(f.doc.querySelector('[data-source-copy-dialog]'))
+  resolve({ messages: [{ role: 'assistant', text: '**正文**' }] }); await tick()
+  f.ctx.dispose()
+})
+
+test('right-click SDK failure opens raw source without invoking the native plain-text action', async () => {
+  for (const mode of ['false', 'reject']) {
+    const f = await controllerFixture('**正文**')
+    f.ctx.os.writeClipboard = async () => { if (mode === 'reject') throw new Error('private operating system details'); return false }
+    selectText(f.doc, '正文')
+    const { item } = await openSelectionMenu(f)
+    const event = new f.win.MouseEvent('click', { bubbles: true, cancelable: true }); item.dispatchEvent(event)
+    await tick()
+    assert.equal(event.defaultPrevented, true)
+    assert.ok(f.doc.querySelector('[data-source-copy-dialog]'))
+    assert.equal(f.notices.at(-1).message.includes('private'), false)
+    f.ctx.dispose()
+  }
+})
+
+test('right-click cannot reuse a detached source surface or a mutated body', async () => {
+  for (const change of ['detach', 'mutate']) {
+    const f = await controllerFixture('**正文**')
+    const writes = []
+    f.ctx.os.writeClipboard = async text => { writes.push(text); return true }
+    selectText(f.doc, '正文')
+    const { item } = await openSelectionMenu(f)
+    if (change === 'detach') f.root.parentElement.remove()
+    else f.root.querySelector('strong').textContent = '新的正文'
+    item.click(); await tick()
+    assert.deepEqual(writes, [])
+    assert.ok(f.doc.querySelector('[data-source-copy-dialog]'))
+    f.ctx.dispose()
+  }
+})
+
+test('right-click link action, unrelated menu, dismissed menu, pause and unload keep ordinary behavior', async () => {
+  for (const change of ['link', 'unrelated', 'dismiss', 'pause', 'unload']) {
+    const f = await controllerFixture('**正文**')
+    const writes = []
+    f.ctx.os.writeClipboard = async text => { writes.push(text); return true }
+    selectText(f.doc, '正文')
+    const { item, menu } = await openSelectionMenu(f, change === 'link' ? '复制链接' : '复制')
+    let target = item
+    if (change === 'unrelated') {
+      const other = menu.cloneNode(true); f.doc.body.append(other); await tick(); target = other.firstElementChild
+    }
+    if (change === 'dismiss') item.dispatchEvent(new f.win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    if (change === 'pause') f.controller.commands.toggle()
+    if (change === 'unload') f.ctx.dispose()
+    const event = new f.win.MouseEvent('click', { bubbles: true, cancelable: true }); target.dispatchEvent(event)
+    assert.equal(event.defaultPrevented, false, change)
+    assert.deepEqual(writes, [], change)
+    f.ctx.dispose()
+  }
+})
+
+test('update command opens only the official fixed-repository force-install confirmation link', async () => {
+  const f = await controllerFixture('正文')
+  const urls = []
+  f.ctx.os.openExternal = async url => { urls.push(url); return true }
+  await f.controller.commands.update()
+  assert.deepEqual(urls, ['hermes://plugin/install?repo=NeekoNoNeko/hermes-source-copy&force=1'])
+  f.ctx.dispose()
+})
+
+test('literal math alignment does not choose among indistinguishable source candidates', async () => {
+  const source = '$\\text{重复中文}$'
+  const f = await controllerFixture(source, [{ role: 'assistant', text: source }, { role: 'assistant', text: '\\$\\text{重复中文}\\$' }])
+  f.root.querySelector('.aui-md').innerHTML = '<p>$\\text{重复中文}$</p>'
+  selectText(f.doc, '重复中文')
+  assert.equal(dispatchCopy(f).data.get('text/plain'), 'previous clipboard')
+  await tick()
+  assert.ok(f.doc.querySelector('[data-source-copy-dialog]'))
+  f.ctx.dispose()
+})
+
 test('Ctrl+C writes only original source and beats the document colour guard', async () => {
   const f = await controllerFixture('__一段文字__')
   let nativeCalls = 0

@@ -1,4 +1,4 @@
-// Hermes Source Copy 1.0.1 — MIT — built for Hermes Desktop ac28abc96c
+// Hermes Source Copy 1.0.2 — MIT — built for Hermes Desktop ac28abc96c
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -11135,9 +11135,16 @@ var SELECTORS = Object.freeze({
   markdown: ".aui-md",
   userBody: '[data-slot="aui_user-message-text"]',
   excluded: '[data-slot="aui_thinking-disclosure"], [data-slot="aui_reasoning-text"], [data-slot="aui_thinking-body"], [data-conversation-scaffold], button, [role="button"], input, textarea, [contenteditable], script, style, svg, [hidden]',
-  editable: 'input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [data-source-copy-dialog]'
+  editable: 'input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [data-source-copy-dialog]',
+  menu: '[data-slot="dropdown-menu-content"][role="menu"]'
 });
 var blockTags = /* @__PURE__ */ new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "LI", "BLOCKQUOTE", "PRE", "TD", "TH", "TR", "TABLE", "HR"]);
+function selectionCopyItem(target, menu) {
+  const item = elementOf(target)?.closest('[data-slot="dropdown-menu-item"][role="menuitem"]');
+  if (!item || !menu?.contains(item) || item.getAttribute("aria-disabled") === "true") return null;
+  if (!item.querySelector("i.codicon-copy") || item.children.length !== 2 || item.children[1].tagName !== "SPAN") return null;
+  return ["Copy", "\u590D\u5236", "\u8907\u88FD", "Kopieren", "Copier", "Copiar", "Copia", "\u30B3\u30D4\u30FC", "\uBCF5\uC0AC", "\u0646\u0633\u062E"].includes(item.children[1].textContent.trim()) ? item : null;
+}
 function elementOf(node2) {
   return node2?.nodeType === 1 ? node2 : node2?.parentElement;
 }
@@ -11185,6 +11192,13 @@ function projectMessage(root2, bodyOverride) {
       units.push({ kind: "math", value: annotation.textContent.trim(), element: node2 });
       return;
     }
+    if (node2.classList.contains("katex-error")) {
+      const display = node2.parentElement.tagName === "DIV";
+      if (display) separator();
+      units.push({ kind: "math", value: node2.textContent.trim(), element: node2 });
+      if (display) separator();
+      return;
+    }
     if (node2.getAttribute("aria-hidden") === "true") return;
     if (node2.matches('[data-slot="code-card"]')) {
       const code3 = node2.querySelector("pre code, code");
@@ -11212,6 +11226,45 @@ function projectMessage(root2, bodyOverride) {
 }
 function projectMessageParts(root2, whole = projectMessage(root2)) {
   return whole.role === "user" || whole.bodies.length < 2 ? [whole] : whole.bodies.map((body) => projectMessage(root2, [body]));
+}
+function alignProjection(projection, model) {
+  if (!model || model.role !== projection.role) return null;
+  if (model.signature === projection.signature) return projection;
+  if (!projection.tokens) return null;
+  const aligned = [];
+  let cursor = 0;
+  for (const token of model.tokens) {
+    if (token.key === projection.tokens[cursor]?.key) {
+      aligned.push(projection.tokens[cursor++]);
+      continue;
+    }
+    const math2 = token.members.find((unit) => unit.kind === "math");
+    if (!math2) return null;
+    const raw = model.source.slice(math2.start, math2.end);
+    const variants = [raw];
+    if (raw.startsWith("\\(") && raw.endsWith("\\)")) variants.push("$" + raw.slice(2, -2) + "$");
+    if (raw.startsWith("\\[") && raw.endsWith("\\]")) variants.push("$$" + raw.slice(2, -2) + "$$");
+    if (!math2.literalVariants) math2.literalVariants = variants.flatMap((value) => {
+      const keys = [normalizeUnits(value.split("").map((value2) => ({ kind: "text", value: value2 })))];
+      if (value.startsWith("$") && value.endsWith("$")) {
+        const count = value.startsWith("$$") ? 2 : 1;
+        try {
+          const literal = parseSource("\\$".repeat(count) + value.slice(count, -count) + "\\$".repeat(count));
+          if (literal.tokens.every((t) => !t.key.startsWith("math:"))) keys.push(literal.tokens);
+        } catch {
+        }
+      }
+      return keys;
+    });
+    const matches = math2.literalVariants.filter((keys) => keys.every((key, index2) => key.key === projection.tokens[cursor + index2]?.key));
+    const lengths = [...new Set(matches.map((keys) => keys.length))];
+    if (lengths.length !== 1) return null;
+    const length = lengths[0];
+    aligned.push({ key: token.key, members: projection.tokens.slice(cursor, cursor + length).flatMap((t) => t.members) });
+    cursor += length;
+  }
+  if (cursor !== projection.tokens.length) return null;
+  return { ...projection, tokens: aligned, signature: model.signature };
 }
 function describeSelection(doc) {
   const selection = doc.getSelection();
@@ -11257,7 +11310,7 @@ function selectedTokenSpan(projection, range) {
 function matchHistory(visible, history) {
   const candidates = visible.map((p) => {
     return history.flatMap((h, index2) => {
-      if (h.role !== p.role || h.model?.signature !== p.signature) return [];
+      if (h.role !== p.role || !alignProjection(p, h.model)) return [];
       return [index2];
     });
   });
@@ -11513,6 +11566,13 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
   let debounce = null;
   let preparation = 0;
   const unsubscribers = [];
+  let menuCopy = null;
+  let menuExpiry = null;
+  function clearMenuCopy() {
+    menuCopy = null;
+    menuExpiry?.();
+    menuExpiry = null;
+  }
   function notify(kind, message) {
     if (!disposed) host2.notify({ kind, message });
   }
@@ -11532,6 +11592,7 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
       cache.clear();
       scope = next;
       clearPreparation();
+      clearMenuCopy();
       dialog.close();
     }
     void warm(next);
@@ -11546,9 +11607,10 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
   }
   function materialize(selection, target, rows) {
     if (selection.error) throw new MappingError(selection.error);
+    if (!selection.surface.isConnected || selection.selected.some((p) => !p.root.isConnected)) throw new MappingError("\u6D88\u606F\u6B63\u6587\u5DF2\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9");
     if (!scopeOwnsSurface(host2, target, selection.surface)) throw new MappingError("\u9009\u533A\u7684\u4F1A\u8BDD\u5F52\u5C5E\u5C1A\u672A\u786E\u8BA4");
     if (selection.selected.some((p) => p.root.querySelector('[data-message-streaming="true"]'))) throw new MappingError("\u6D88\u606F\u4ECD\u5728\u751F\u6210\uFF0C\u8BF7\u5B8C\u6210\u540E\u518D\u590D\u5236");
-    const hasSource = (projection) => rows.some((row) => row.role === projection.role && row.model?.signature === projection.signature);
+    const hasSource = (projection) => rows.some((row) => alignProjection(projection, row.model));
     const projections = [...selection.surface.querySelectorAll(SELECTORS.message)].flatMap((root2) => {
       try {
         const projection = projectMessage(root2);
@@ -11567,7 +11629,7 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
       const row = matched[index2];
       if (!row?.model) throw new MappingError("\u6D88\u606F\u4E0E\u539F\u6587\u65E0\u6CD5\u552F\u4E00\u5339\u914D");
       selectedRows.push(row);
-      return extractSource(row.model, ...selectedTokenSpan(projection, selection.range));
+      return extractSource(row.model, ...selectedTokenSpan(alignProjection(projection, row.model), selection.range));
     });
     return { text: pieces.join("\n\n"), selectedRows };
   }
@@ -11618,6 +11680,66 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
       fallback(error.message || "\u9009\u533A\u65E0\u6CD5\u51C6\u786E\u5B9A\u4F4D", target);
     }
   }
+  function onContextMenu(event) {
+    clearMenuCopy();
+    if (disposed || !enabled || event.defaultPrevented) return;
+    const selection = describeSelection(doc);
+    const element2 = elementOf(event.target);
+    if (!selection || !element2 || element2.closest(SELECTORS.editable) || element2.closest(SELECTORS.surface) !== selection.surface) return;
+    if (!selection.error && !selection.selected.some((p) => p.bodies.some((body) => body.contains(element2)))) return;
+    menuCopy = { selection, target: captureScope(host2), existing: new Set(doc.querySelectorAll(SELECTORS.menu)), menu: null };
+    menuExpiry = ctx.setTimeout(() => {
+      menuExpiry = null;
+      if (!menuCopy?.menu) clearMenuCopy();
+    }, 1e3);
+    void prepare();
+  }
+  const menuObserver = new win.MutationObserver(() => {
+    if (!menuCopy) return;
+    if (menuCopy.menu && !menuCopy.menu.isConnected) {
+      clearMenuCopy();
+      return;
+    }
+    const added = [...doc.querySelectorAll(SELECTORS.menu)].filter((menu) => !menuCopy.existing.has(menu));
+    if (added.length === 1) menuCopy.menu = added[0];
+    else if (added.length > 1) clearMenuCopy();
+  });
+  menuObserver.observe(doc.body, { childList: true, subtree: true });
+  function onMenuAction(event) {
+    if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
+    const item = selectionCopyItem(event.target, menuCopy?.menu);
+    if (!item || disposed || !enabled) return;
+    const ticket = menuCopy;
+    clearMenuCopy();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    item.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    try {
+      const current = captureScope(host2);
+      if (!sameScope(ticket.target, current)) throw new MappingError("\u804A\u5929\u5DF2\u5207\u6362\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9");
+      const rows = current && cache.get(current);
+      if (!rows) throw new MappingError("\u539F\u6587\u5C1A\u672A\u5C31\u7EEA");
+      const result = materialize(ticket.selection, current, rows);
+      void Promise.resolve(ctx.os.writeClipboard(result.text)).then((ok3) => {
+        if (disposed || !enabled || !sameScope(current, captureScope(host2))) return;
+        if (ok3) notify("success", "\u5DF2\u590D\u5236\u539F\u59CB Markdown / LaTeX");
+        else fallback("\u7CFB\u7EDF\u526A\u8D34\u677F\u5199\u5165\u5931\u8D25", current);
+      }, () => {
+        if (!disposed && enabled && sameScope(current, captureScope(host2))) fallback("\u7CFB\u7EDF\u526A\u8D34\u677F\u5199\u5165\u5931\u8D25", current);
+      });
+    } catch (error) {
+      fallback(error.message || "\u9009\u533A\u65E0\u6CD5\u51C6\u786E\u5B9A\u4F4D", ticket.target);
+    }
+  }
+  ctx.addEventListener(win, "contextmenu", onContextMenu, { capture: true });
+  ctx.addEventListener(win, "click", onMenuAction, { capture: true });
+  ctx.addEventListener(win, "keydown", onMenuAction, { capture: true });
+  ctx.addEventListener(win, "keydown", (event) => {
+    if (event.key === "Escape") clearMenuCopy();
+  }, { capture: true });
+  ctx.addEventListener(win, "pointerdown", (event) => {
+    if (menuCopy?.menu && !menuCopy.menu.contains(elementOf(event.target))) clearMenuCopy();
+  }, { capture: true });
   ctx.addEventListener(win, "copy", onCopy, { capture: true });
   ctx.addEventListener(doc, "selectionchange", queuePreparation);
   ctx.addEventListener(doc, "pointerup", queuePreparation);
@@ -11643,6 +11765,7 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
       ctx.storage?.set("enabled", enabled);
       cache.clear();
       clearPreparation();
+      clearMenuCopy();
       dialog.close();
       notify("info", enabled ? "\u804A\u5929\u6E90\u7801\u590D\u5236\u5DF2\u5F00\u542F" : "\u804A\u5929\u6E90\u7801\u590D\u5236\u5DF2\u6682\u505C\uFF0C\u6062\u590D\u666E\u901A\u590D\u5236");
       if (enabled) refreshScope();
@@ -11650,12 +11773,18 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
     openRaw() {
       const target = captureScope(host2);
       fallback("\u8BF7\u5728\u539F\u6587\u7A97\u53E3\u9009\u62E9\u9700\u8981\u7684\u7247\u6BB5", target);
+    },
+    async update() {
+      const ok3 = await ctx.os.openExternal("hermes://plugin/install?repo=NeekoNoNeko/hermes-source-copy&force=1");
+      if (!ok3) notify("info", "\u65E0\u6CD5\u6253\u5F00\u5B89\u88C5\u7A97\u53E3\uFF1B\u8BF7\u5728\u80FD\u529B \u2192 \u63D2\u4EF6 \u2192 \u4ECE Git \u5B89\u88C5\u4E2D\u5F3A\u5236\u91CD\u88C5 NeekoNoNeko/hermes-source-copy");
     }
   };
   const dispose = () => {
     if (disposed) return;
     disposed = true;
     clearPreparation();
+    clearMenuCopy();
+    menuObserver.disconnect();
     debounce?.();
     unsubscribers.forEach((unsubscribe) => unsubscribe());
     cache.dispose();
@@ -11687,6 +11816,12 @@ var plugin_default = {
         label: "\u6E90\u7801\u590D\u5236\uFF1A\u67E5\u770B\u5F53\u524D\u804A\u5929\u539F\u6587",
         keywords: ["markdown", "latex", "source", "\u539F\u6587"],
         run: controller.commands.openRaw
+      } },
+      { id: "update", area: PALETTE_AREA, data: {
+        id: "hermes-source-copy.update",
+        label: "\u6E90\u7801\u590D\u5236\uFF1A\u66F4\u65B0\u63D2\u4EF6\uFF08\u5B98\u65B9\u5B89\u88C5\u7A97\u53E3\uFF09",
+        keywords: ["update", "\u66F4\u65B0", "markdown", "latex"],
+        run: controller.commands.update
       } }
     ]);
   }

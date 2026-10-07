@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-Select text in a Hermes Desktop chat and press **Ctrl+C** (**Cmd+C** on macOS) to copy its original Markdown and LaTeX. The plugin preserves original syntax and opens a source window when it cannot identify a selection accurately.
+Select text in a Hermes Desktop chat and press **Ctrl+C** (**Cmd+C** on macOS), or choose the original right-click menu's **Copy**, to copy its original Markdown and LaTeX. The plugin preserves original syntax and opens a source window when it cannot identify a selection accurately.
 
 An independent community **Desktop-only** plugin, using the [official ESM SDK](https://hermes-agent.nousresearch.com/docs/developer-guide/desktop-plugin-sdk). Compatibility baseline: official Hermes Desktop commit `ac28abc96c`. No client modification, model calls, or backend plugin are required. The plugin interface currently uses Chinese labels; the English and Chinese documentation cover the same features.
 
@@ -16,13 +16,20 @@ Alternatively: [Install in Hermes](hermes://plugin/install?repo=NeekoNoNeko/herm
 
 The repository includes a **prebuilt root `plugin.js`**, which the official installer detects as a standalone Desktop plugin. Git installation needs Git, but no Node.js, npm build, Python, or API key. There is no Agent plugin manifest. This is a Git-installable community repository; it does not claim inclusion in the official catalog. See the [official Git installation guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins).
 
-**Updating from v1.0.0:** install from the same Git URL with **force reinstall** enabled. v1.0.1 fixes widespread false mismatches caused by ephemeral renderer timestamps, supports multiple assistant text parts merged around tools, and excludes tool/reasoning Markdown from the body. Matching still requires exact source and provable display order; unresolved duplicate messages use the source window.
+**v1.0.2:** supports formulas displayed literally after CJK preprocessing and KaTeX error spans. A failed formula no longer prevents matching the rest of an otherwise supported message. Right-click **Copy** uses the same source mapping as Ctrl+C, including selection snapshots retained across menu focus changes. Matching still requires exact source and provable display order; unresolved duplicates use the source window.
+
+## Updates
+
+For this standalone Desktop plugin, the baseline SDK has **no automatic-update API**. The Agent/catalog update mechanism applies to Agent packages, not this Desktop-only repository. File hot reload loads changes already on disk; it does not pull GitHub updates.
+
+Use [Update in Hermes](hermes://plugin/install?repo=NeekoNoNeko/hermes-source-copy&force=1), or (after installing v1.0.2) the command **源码复制：更新插件（官方安装窗口）**. Both open Hermes's official install confirmation with the repository filled in and force reinstall selected. Confirm the Desktop component to update. This uses the [documented `force=1` install link](https://hermes-agent.nousresearch.com/docs/developer-guide/desktop-plugin-sdk#distributing-with-an-install-link); it never silently downloads or executes an update. Alternatively, use the existing Install from Git dialog and enable force reinstall.
 
 ## Copy rules and limits
 
 - Plain text retains source characters, escapes, and internal whitespace and line breaks.
 - Selecting `文字` inside `__一段文字__` produces `__文字__`. Partial bold, italic, strikethrough, links, and inline code use the original markers to complete the fragment.
 - Touching any part of a formula copies the **entire original formula**, preserving `$...$`, `$$...$$`, `\(...\)`, or `\[...\]`.
+- This includes exact literal formula runs and `.katex-error` spans. Chinese is not inherently invalid LaTeX: the baseline escapes CJK inline math as prose, while valid Chinese display math can render normally. Clipboard output always comes from the original formula.
 - Lists, quotes, headings, and code blocks retain their original markers. Selecting table cells copies the **entire original table**.
 - Selections across messages in the same chat join in display order using two newlines, without role labels.
 - Clipboard output is only `text/plain`; rich-text data cannot override the source.
@@ -38,6 +45,9 @@ Command palette:
 
 - **源码复制：开启 / 暂停** — enable/pause interception. Pausing clears messages and restores normal copying.
 - **源码复制：查看当前聊天原文** — explicitly open the source window, even while interception is paused.
+- **源码复制：更新插件（官方安装窗口）** — open the prefilled official update confirmation.
+
+The original right-click menu adapter targets the baseline's selection **Copy** item, identified by its DOM structure, copy icon and localized label (English and Chinese are tested). Link/image actions remain available. A source range stays in memory only while that menu is open and is revalidated before copying. DOM adapters are centralized; other client versions or unknown menu labels may require adaptation.
 
 ## Privacy and security
 
@@ -89,5 +99,7 @@ Build produces identical root `plugin.js` and `dist/hermes-source-copy/plugin.js
 Tests use real remark/KaTeX DOM to compare source character by character, and cover repeated content, nested formats, four math delimiters, reverse/cross-message selection, streaming, routing, stale replies, cleanup, source-window injection, bundle loading, and Windows installation/backup/uninstallation with link rejection. See [VERIFICATION.md](VERIFICATION.md) for actual results and limits.
 
 v1.0.1 was also checked against visible messages in a running baseline Hermes window using synthetic copy events, including a previously failing math answer and a merged later text part. Native clipboard writing of the resulting formula was compared character for character through the SDK. Physical Ctrl+C/Cmd+C events, a real remote gateway, and other platforms still need manual acceptance tests. After installation, copy bold text, all four math delimiters, repeated paragraphs, and a table into a plain-text editor. Check input/terminal copying too, and repeat after upgrading Hermes.
+
+v1.0.2 passes 81 Windows tests and the supplied failing passage against the actual upstream renderer. The real Hermes context menu was exercised with synthetic source and event gestures; source handed to the SDK matched exactly and the menu closed. Native clipboard readback did not pass in this run (Windows access failure; client readback did not match), so final OS paste behavior remains an acceptance check. Details are recorded in VERIFICATION.md.
 
 MIT licensed. Bundled licenses: [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt).

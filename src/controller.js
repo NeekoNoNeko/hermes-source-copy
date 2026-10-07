@@ -1,5 +1,5 @@
 import { extractSource, MappingError } from './source-map.js'
-import { SELECTORS, describeSelection, matchHistory, projectMessage, projectMessageParts, selectedTokenSpan, unitIntersects } from './dom-adapter.js'
+import { SELECTORS, elementOf, selectionCopyItem, alignProjection, describeSelection, matchHistory, projectMessage, projectMessageParts, selectedTokenSpan, unitIntersects } from './dom-adapter.js'
 import { captureScope, sameScope, scopeOwnsSurface, createHistoryCache } from './history.js'
 import { createRawDialog } from './raw-dialog.js'
 
@@ -12,6 +12,9 @@ export function startController(host, ctx, { doc = document, win = window } = {}
   let debounce = null
   let preparation = 0
   const unsubscribers = []
+  let menuCopy = null
+  let menuExpiry = null
+  function clearMenuCopy() { menuCopy = null; menuExpiry?.(); menuExpiry = null }
   function notify(kind, message) { if (!disposed) host.notify({ kind, message }) }
   function clearPreparation() { preparation++ }
   async function warm(target) {
@@ -20,7 +23,7 @@ export function startController(host, ctx, { doc = document, win = window } = {}
   }
   function refreshScope() {
     const next = captureScope(host)
-    if (!sameScope(scope, next)) { cache.clear(); scope = next; clearPreparation(); dialog.close() }
+    if (!sameScope(scope, next)) { cache.clear(); scope = next; clearPreparation(); clearMenuCopy(); dialog.close() }
     void warm(next)
   }
   function queuePreparation() {
@@ -30,9 +33,10 @@ export function startController(host, ctx, { doc = document, win = window } = {}
   }
   function materialize(selection, target, rows) {
     if (selection.error) throw new MappingError(selection.error)
+    if (!selection.surface.isConnected || selection.selected.some(p => !p.root.isConnected)) throw new MappingError('消息正文已发生变化，请重新选择')
     if (!scopeOwnsSurface(host, target, selection.surface)) throw new MappingError('选区的会话归属尚未确认')
     if (selection.selected.some(p => p.root.querySelector('[data-message-streaming="true"]'))) throw new MappingError('消息仍在生成，请完成后再复制')
-    const hasSource = projection => rows.some(row => row.role === projection.role && row.model?.signature === projection.signature)
+    const hasSource = projection => rows.some(row => alignProjection(projection, row.model))
     const projections = [...selection.surface.querySelectorAll(SELECTORS.message)].flatMap(root => {
       try {
         const projection = projectMessage(root)
@@ -50,7 +54,7 @@ export function startController(host, ctx, { doc = document, win = window } = {}
       const row = matched[index]
       if (!row?.model) throw new MappingError('消息与原文无法唯一匹配')
       selectedRows.push(row)
-      return extractSource(row.model, ...selectedTokenSpan(projection, selection.range))
+      return extractSource(row.model, ...selectedTokenSpan(alignProjection(projection, row.model), selection.range))
     })
     return { text: pieces.join('\n\n'), selectedRows }
   }
@@ -98,6 +102,55 @@ export function startController(host, ctx, { doc = document, win = window } = {}
       fallback(error.message || '选区无法准确定位', target)
     }
   }
+  function onContextMenu(event) {
+    clearMenuCopy()
+    if (disposed || !enabled || event.defaultPrevented) return
+    const selection = describeSelection(doc)
+    const element = elementOf(event.target)
+    if (!selection || !element || element.closest(SELECTORS.editable) || element.closest(SELECTORS.surface) !== selection.surface) return
+    if (!selection.error && !selection.selected.some(p => p.bodies.some(body => body.contains(element)))) return
+    menuCopy = { selection, target: captureScope(host), existing: new Set(doc.querySelectorAll(SELECTORS.menu)), menu: null }
+    menuExpiry = ctx.setTimeout(() => { menuExpiry = null; if (!menuCopy?.menu) clearMenuCopy() }, 1000)
+    void prepare()
+  }
+  const menuObserver = new win.MutationObserver(() => {
+    if (!menuCopy) return
+    if (menuCopy.menu && !menuCopy.menu.isConnected) { clearMenuCopy(); return }
+    const added = [...doc.querySelectorAll(SELECTORS.menu)].filter(menu => !menuCopy.existing.has(menu))
+    if (added.length === 1) menuCopy.menu = added[0]
+    else if (added.length > 1) clearMenuCopy()
+  })
+  menuObserver.observe(doc.body, { childList: true, subtree: true })
+  function onMenuAction(event) {
+    if (event.type === 'keydown' && !['Enter', ' '].includes(event.key)) return
+    const item = selectionCopyItem(event.target, menuCopy?.menu)
+    if (!item || disposed || !enabled) return
+    const ticket = menuCopy
+    clearMenuCopy()
+    event.preventDefault(); event.stopImmediatePropagation()
+    // Close through Radix's public DOM event handling, without patching its
+    // React handlers or the native bridge. The saved range survives focus loss.
+    item.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    try {
+      const current = captureScope(host)
+      if (!sameScope(ticket.target, current)) throw new MappingError('聊天已切换，请重新选择')
+      const rows = current && cache.get(current)
+      if (!rows) throw new MappingError('原文尚未就绪')
+      const result = materialize(ticket.selection, current, rows)
+      // Initiate only at the user's menu activation, never after a history
+      // read. Do not allow the client's plain-text handler to overwrite it.
+      void Promise.resolve(ctx.os.writeClipboard(result.text)).then(ok => {
+        if (disposed || !enabled || !sameScope(current, captureScope(host))) return
+        if (ok) notify('success', '已复制原始 Markdown / LaTeX')
+        else fallback('系统剪贴板写入失败', current)
+      }, () => { if (!disposed && enabled && sameScope(current, captureScope(host))) fallback('系统剪贴板写入失败', current) })
+    } catch (error) { fallback(error.message || '选区无法准确定位', ticket.target) }
+  }
+  ctx.addEventListener(win, 'contextmenu', onContextMenu, { capture: true })
+  ctx.addEventListener(win, 'click', onMenuAction, { capture: true })
+  ctx.addEventListener(win, 'keydown', onMenuAction, { capture: true })
+  ctx.addEventListener(win, 'keydown', event => { if (event.key === 'Escape') clearMenuCopy() }, { capture: true })
+  ctx.addEventListener(win, 'pointerdown', event => { if (menuCopy?.menu && !menuCopy.menu.contains(elementOf(event.target))) clearMenuCopy() }, { capture: true })
   ctx.addEventListener(win, 'copy', onCopy, { capture: true })
   ctx.addEventListener(doc, 'selectionchange', queuePreparation)
   ctx.addEventListener(doc, 'pointerup', queuePreparation)
@@ -120,18 +173,22 @@ export function startController(host, ctx, { doc = document, win = window } = {}
     toggle() {
       enabled = !enabled
       ctx.storage?.set('enabled', enabled)
-      cache.clear(); clearPreparation(); dialog.close()
+      cache.clear(); clearPreparation(); clearMenuCopy(); dialog.close()
       notify('info', enabled ? '聊天源码复制已开启' : '聊天源码复制已暂停，恢复普通复制')
       if (enabled) refreshScope()
     },
     openRaw() {
       const target = captureScope(host)
       fallback('请在原文窗口选择需要的片段', target)
+    },
+    async update() {
+      const ok = await ctx.os.openExternal('hermes://plugin/install?repo=NeekoNoNeko/hermes-source-copy&force=1')
+      if (!ok) notify('info', '无法打开安装窗口；请在能力 → 插件 → 从 Git 安装中强制重装 NeekoNoNeko/hermes-source-copy')
     }
   }
   const dispose = () => {
     if (disposed) return
-    disposed = true; clearPreparation(); debounce?.()
+    disposed = true; clearPreparation(); clearMenuCopy(); menuObserver.disconnect(); debounce?.()
     unsubscribers.forEach(unsubscribe => unsubscribe())
     cache.dispose(); dialog.close()
   }
