@@ -44,14 +44,14 @@ export function normalizeMath(source) {
 export function normalizeUnits(units) {
   const result = []
   for (const unit of units) {
-    if (unit.kind !== 'math' && /\s/u.test(unit.value)) {
+    if (unit.kind === 'text' && /\s/u.test(unit.value)) {
       const prev = result.at(-1)
       if (prev?.key === ' ') {
         prev.members.push(unit)
         continue
       }
       result.push({ key: ' ', members: [unit] })
-    } else result.push({ key: unit.kind === 'math' ? `math:${unit.value.trim()}` : `text:${unit.value}`, members: [unit] })
+    } else result.push({ key: unit.kind === 'math' ? `math:${unit.value.trim()}` : unit.kind === 'attachment' ? `attachment:${unit.value}` : `text:${unit.value}`, members: [unit] })
   }
   while (result[0]?.key === ' ') result.shift()
   while (result.at(-1)?.key === ' ') result.pop()
@@ -148,6 +148,10 @@ export function parseSource(source, role = 'assistant') {
     }
     if (node.type === 'text') {
       units.push(...decodedUnits(source, node.position.start.offset, node.position.end.offset, node.value, path))
+    } else if (node.type === 'link' && node.url.startsWith('#media:')) {
+      let target
+      try { target = decodeURIComponent(node.url.slice(7)) } catch { throw new MappingError('文件链接编码不受支持') }
+      units.push({ kind: 'attachment', value: target, start: node.position.start.offset, end: node.position.end.offset, ancestors: path })
     } else if (node.type === 'inlineMath' || node.type === 'math') {
       const raw = source.slice(node.position.start.offset, node.position.end.offset)
       const slash = raw.startsWith('\\(') || raw.startsWith('\\[')

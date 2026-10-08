@@ -25,7 +25,7 @@ test('production ESM bundle loads, registers and copies using SDK alone', async 
     assert.equal(typeof module.default.register, 'function')
     module.default.register(ctx)
     await tick()
-    assert.equal(contributions.length, 3)
+    assert.equal(contributions.length, 2)
     selectText(f.doc, '原文')
     assert.equal(dispatchCopy(f).data.get('text/plain'), '__原文__')
   } finally {

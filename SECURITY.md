@@ -1,24 +1,25 @@
 # Security and privacy review / 安全与隐私审查
 
-Review date: 2026-10-07. Hermes source baseline: `ac28abc96c`.
+Review date: 2026-10-08. Hermes source baseline: `ac28abc96c`.
 
 ## Findings and changes
 
 Reviewed first-party runtime source, build/package/install/uninstall scripts, the generated ESM bundle, dependency advisories, and files intended for public Git publication.
 
-- v1.0.2 aligns literal/error math only against complete ordered source projections. Error tooltips are never trusted as LaTeX. Ambiguous literal/formula candidates still fail closed; clipboard output is sliced from the original source.
-- Original right-click Copy interception is restricted to the newly opened baseline menu for a chat-body selection. Its transient range is discarded on dismissal, outside clicks, scope changes, pause and unload. Detached or changed bodies are revalidated; link/image actions and unrelated menus are not retargeted. The clipboard write is initiated at menu activation with already available source, not after an asynchronous history request.
-- The update palette command opens a fixed, documented `hermes://plugin/install?...&force=1` URL through `ctx.os.openExternal`. Hermes presents its own confirmation. There is no update polling, arbitrary repository input, remote-code loader, or silent self-replacement.
+- v1.0.3 retains exact alignment of literal/error math only against complete ordered source projections. Error tooltips are never trusted as LaTeX. Ambiguous literal/formula candidates still fail closed; clipboard output is sliced from the original source.
+- Removed the right-click adapter and install/update palette command. The plugin no longer holds menu ranges, observes menus, intercepts their activation or opens installation URLs. Only source-copy and raw-view commands remain.
+- File-card mapping requires the source link’s decoded target, the pinned DOM structure, verified basename and complete ordered body. Copying does not invoke card actions, fetch targets or read their files. Changed/ambiguous cards fail closed.
 
-- No implemented analytics, third-party upload, direct runtime network requests, clipboard reads, shell execution, or dynamic code execution. The runtime data request is the connection/profile-qualified `session.history` RPC to the user's existing Hermes gateway.
+- No implemented analytics, third-party upload, direct runtime network requests, clipboard reads, shell execution, or dynamic code execution. Runtime reads are the connection/profile-qualified `session.history` RPC and a pinned, read-only native bridge request for the current stored session’s `/api/sessions/<id>/messages`. Explicit profile/connection routing, compacted history, oldest order, raw offsets and disabled inline image expansion are tested. No SDK generic REST method is assumed; `window.hermesDesktop.api` is the client bridge, not an SDK update API.
 - Source UI uses `textContent`/`textarea.value`; message HTML and link destinations are not executed or fetched. Regression tests verify literal display of malicious HTML and masking of gateway errors.
 - Tightened retention to body/role/timestamp/model fields and a current-session cache. Focus/owner changes, pause, and unload clear it and reject stale pending replies. Paused interception skips automatic history reads; explicit source-view requests remain available.
+- Archive reads are bounded to 20 pages of 500 raw rows or 1,000,000 body characters. Pagination order/offset/page size and supplied profile stamps are checked; legacy full responses are read once. Only one proven shared row can join a live tail, preventing fabricated ordering. Backend row ids are discarded after merging and are not used as DOM identity. Invalidation/disposal stops subsequent pages and rejects stale data.
 - Parsing limits: 200,000 characters per message and 1,000,000 per session read. Ordered matching avoids repeated scans of candidate sets. Unsupported mappings open the source window.
 - Windows scripts reject reparse points in ancestors and nested plugin entries. Tests verify refusing a nested junction without modifying its external target. Uninstall checks the exact plugin path. Update backups remain on disk and can contain the previous plugin package.
 - `npm audit --registry=https://registry.npmjs.org` reported **0 known vulnerabilities**, including development dependencies, on the review date. The configured mirror lacked audit support; the official registry was used explicitly.
 - Publication excludes local caches, chat data, credentials, logs, node_modules, and release staging. Runtime imports are limited to the SDK. Dependency versions/integrity are locked and bundled licenses included.
 - v1.0.1 re-audit found a KaTeX advisory that the earlier audit response did not report. Updated KaTeX to the patched 0.18.2-or-later line and overrode transitive copies; all regression tests and the official-registry audit pass. See [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7). KaTeX rendering code is not in this plugin's runtime bundle; Hermes renders formulas itself. This does not modify or audit the client's own KaTeX version.
-- Live troubleshooting used temporary loopback-only diagnostics containing counts, lengths, and result categories, never message bodies. The server was closed and instrumentation removed; none is in the repository or release. The supplied user example stayed in an ignored local cache. Public renderer regression fixtures contain synthetic text only.
+- Live troubleshooting used temporary loopback-only diagnostics containing counts, lengths, and result categories, never message bodies. The server was closed and instrumentation removed; none is in the repository or release. The supplied user examples stayed in an ignored local cache. Public renderer regression fixtures contain synthetic text only.
 
 No unresolved security/privacy issue was found within this scope. This is code review and automated regression checking, **not a penetration test or a guarantee of no vulnerabilities**.
 
@@ -38,6 +39,6 @@ Report vulnerabilities privately through GitHub **Security → Report a vulnerab
 
 审查了运行时源码、构建及安装/卸载脚本、生产 ESM 包、依赖漏洞报告和拟公开文件，在该范围内未发现未解决的安全或隐私问题。修复了暂停/切换时的缓存保留、过量元数据保留、网关错误详情展示和安装路径链接风险，补充了回归测试。官方 npm registry 审计报告为 0 个已知漏洞（含开发依赖）。
 
-v1.0.2 只按完整正文及显示顺序核对错误/文本公式，不把错误提示当作源码；仍拒绝歧义匹配。右键适配仅处理刚打开的聊天选区菜单，关闭、切换、暂停和卸载时丢弃临时选区，复制前重新核对正文；不改变链接/图片和其他区域的菜单。更新命令只打开固定仓库的官方确认窗口，不轮询、不静默安装、不加载远程代码。
+v1.0.3 移除右键适配和安装/更新命令；只保留源码复制及原文窗口。补读当前存储会话的压缩存档，原生桥接仅执行固定路径的 GET，明确连接/配置/会话，关闭内嵌图片展开；分页数量及字符总量有上限，切换/卸载时停止后续分页并丢弃过期结果。实时尾段只在共享行可证明时拼接，不猜测顺序。文件卡片核对完整目标、名称、结构和正文顺序；不打开或下载目标。私人样例不发布。
 
 这不是无漏洞保证。Hermes 插件没有沙箱；连接和鉴权由 Hermes 管理。接口返回当前会话可见正文；释放缓存引用不保证物理内存清零。安装脚本不能防御其他程序同时篡改路径。v1.0.1 补充了本机窗口合成复制事件及一次 SDK 系统剪贴板验证，但不等同于全场景验收；物理键盘事件、远程网关和其他平台尚未验证。再次审计后同步更新 KaTeX 及传递依赖，审计为 0 个已知漏洞；不修改客户端自身的 KaTeX。临时诊断代码与用户样例不公开发布。请通过私密漏洞报告渠道反馈，勿公开聊天内容或密钥；渠道不可用时，仅发 issue 询问私密渠道。

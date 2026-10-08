@@ -1,10 +1,10 @@
 import { extractSource, MappingError } from './source-map.js'
-import { SELECTORS, elementOf, selectionCopyItem, alignProjection, describeSelection, matchHistory, projectMessage, projectMessageParts, selectedTokenSpan, unitIntersects } from './dom-adapter.js'
+import { SELECTORS, alignProjection, describeSelection, matchHistory, projectMessage, projectMessageParts, selectedTokenSpan, unitIntersects } from './dom-adapter.js'
 import { captureScope, sameScope, scopeOwnsSurface, createHistoryCache } from './history.js'
 import { createRawDialog } from './raw-dialog.js'
 
 export function startController(host, ctx, { doc = document, win = window } = {}) {
-  const cache = createHistoryCache(host)
+  const cache = createHistoryCache(host, { readPersisted: typeof win.hermesDesktop?.api === 'function' ? request => win.hermesDesktop.api(request) : undefined })
   const dialog = createRawDialog(doc, ctx)
   let disposed = false
   let enabled = ctx.storage?.get('enabled', true) !== false
@@ -12,9 +12,6 @@ export function startController(host, ctx, { doc = document, win = window } = {}
   let debounce = null
   let preparation = 0
   const unsubscribers = []
-  let menuCopy = null
-  let menuExpiry = null
-  function clearMenuCopy() { menuCopy = null; menuExpiry?.(); menuExpiry = null }
   function notify(kind, message) { if (!disposed) host.notify({ kind, message }) }
   function clearPreparation() { preparation++ }
   async function warm(target) {
@@ -23,7 +20,7 @@ export function startController(host, ctx, { doc = document, win = window } = {}
   }
   function refreshScope() {
     const next = captureScope(host)
-    if (!sameScope(scope, next)) { cache.clear(); scope = next; clearPreparation(); clearMenuCopy(); dialog.close() }
+    if (!sameScope(scope, next)) { cache.clear(); scope = next; clearPreparation(); dialog.close() }
     void warm(next)
   }
   function queuePreparation() {
@@ -102,55 +99,6 @@ export function startController(host, ctx, { doc = document, win = window } = {}
       fallback(error.message || '选区无法准确定位', target)
     }
   }
-  function onContextMenu(event) {
-    clearMenuCopy()
-    if (disposed || !enabled || event.defaultPrevented) return
-    const selection = describeSelection(doc)
-    const element = elementOf(event.target)
-    if (!selection || !element || element.closest(SELECTORS.editable) || element.closest(SELECTORS.surface) !== selection.surface) return
-    if (!selection.error && !selection.selected.some(p => p.bodies.some(body => body.contains(element)))) return
-    menuCopy = { selection, target: captureScope(host), existing: new Set(doc.querySelectorAll(SELECTORS.menu)), menu: null }
-    menuExpiry = ctx.setTimeout(() => { menuExpiry = null; if (!menuCopy?.menu) clearMenuCopy() }, 1000)
-    void prepare()
-  }
-  const menuObserver = new win.MutationObserver(() => {
-    if (!menuCopy) return
-    if (menuCopy.menu && !menuCopy.menu.isConnected) { clearMenuCopy(); return }
-    const added = [...doc.querySelectorAll(SELECTORS.menu)].filter(menu => !menuCopy.existing.has(menu))
-    if (added.length === 1) menuCopy.menu = added[0]
-    else if (added.length > 1) clearMenuCopy()
-  })
-  menuObserver.observe(doc.body, { childList: true, subtree: true })
-  function onMenuAction(event) {
-    if (event.type === 'keydown' && !['Enter', ' '].includes(event.key)) return
-    const item = selectionCopyItem(event.target, menuCopy?.menu)
-    if (!item || disposed || !enabled) return
-    const ticket = menuCopy
-    clearMenuCopy()
-    event.preventDefault(); event.stopImmediatePropagation()
-    // Close through Radix's public DOM event handling, without patching its
-    // React handlers or the native bridge. The saved range survives focus loss.
-    item.dispatchEvent(new win.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-    try {
-      const current = captureScope(host)
-      if (!sameScope(ticket.target, current)) throw new MappingError('聊天已切换，请重新选择')
-      const rows = current && cache.get(current)
-      if (!rows) throw new MappingError('原文尚未就绪')
-      const result = materialize(ticket.selection, current, rows)
-      // Initiate only at the user's menu activation, never after a history
-      // read. Do not allow the client's plain-text handler to overwrite it.
-      void Promise.resolve(ctx.os.writeClipboard(result.text)).then(ok => {
-        if (disposed || !enabled || !sameScope(current, captureScope(host))) return
-        if (ok) notify('success', '已复制原始 Markdown / LaTeX')
-        else fallback('系统剪贴板写入失败', current)
-      }, () => { if (!disposed && enabled && sameScope(current, captureScope(host))) fallback('系统剪贴板写入失败', current) })
-    } catch (error) { fallback(error.message || '选区无法准确定位', ticket.target) }
-  }
-  ctx.addEventListener(win, 'contextmenu', onContextMenu, { capture: true })
-  ctx.addEventListener(win, 'click', onMenuAction, { capture: true })
-  ctx.addEventListener(win, 'keydown', onMenuAction, { capture: true })
-  ctx.addEventListener(win, 'keydown', event => { if (event.key === 'Escape') clearMenuCopy() }, { capture: true })
-  ctx.addEventListener(win, 'pointerdown', event => { if (menuCopy?.menu && !menuCopy.menu.contains(elementOf(event.target))) clearMenuCopy() }, { capture: true })
   ctx.addEventListener(win, 'copy', onCopy, { capture: true })
   ctx.addEventListener(doc, 'selectionchange', queuePreparation)
   ctx.addEventListener(doc, 'pointerup', queuePreparation)
@@ -173,22 +121,18 @@ export function startController(host, ctx, { doc = document, win = window } = {}
     toggle() {
       enabled = !enabled
       ctx.storage?.set('enabled', enabled)
-      cache.clear(); clearPreparation(); clearMenuCopy(); dialog.close()
+      cache.clear(); clearPreparation(); dialog.close()
       notify('info', enabled ? '聊天源码复制已开启' : '聊天源码复制已暂停，恢复普通复制')
       if (enabled) refreshScope()
     },
     openRaw() {
       const target = captureScope(host)
       fallback('请在原文窗口选择需要的片段', target)
-    },
-    async update() {
-      const ok = await ctx.os.openExternal('hermes://plugin/install?repo=NeekoNoNeko/hermes-source-copy&force=1')
-      if (!ok) notify('info', '无法打开安装窗口；请在能力 → 插件 → 从 Git 安装中强制重装 NeekoNoNeko/hermes-source-copy')
     }
   }
   const dispose = () => {
     if (disposed) return
-    disposed = true; clearPreparation(); clearMenuCopy(); menuObserver.disconnect(); debounce?.()
+    disposed = true; clearPreparation(); debounce?.()
     unsubscribers.forEach(unsubscribe => unsubscribe())
     cache.dispose(); dialog.close()
   }

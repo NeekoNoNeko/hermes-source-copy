@@ -1,4 +1,4 @@
-// Hermes Source Copy 1.0.2 — MIT — built for Hermes Desktop ac28abc96c
+// Hermes Source Copy 1.0.3 — MIT — built for Hermes Desktop ac28abc96c
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -10939,14 +10939,14 @@ function normalizeMath(source) {
 function normalizeUnits(units) {
   const result = [];
   for (const unit of units) {
-    if (unit.kind !== "math" && /\s/u.test(unit.value)) {
+    if (unit.kind === "text" && /\s/u.test(unit.value)) {
       const prev = result.at(-1);
       if (prev?.key === " ") {
         prev.members.push(unit);
         continue;
       }
       result.push({ key: " ", members: [unit] });
-    } else result.push({ key: unit.kind === "math" ? `math:${unit.value.trim()}` : `text:${unit.value}`, members: [unit] });
+    } else result.push({ key: unit.kind === "math" ? `math:${unit.value.trim()}` : unit.kind === "attachment" ? `attachment:${unit.value}` : `text:${unit.value}`, members: [unit] });
   }
   while (result[0]?.key === " ") result.shift();
   while (result.at(-1)?.key === " ") result.pop();
@@ -11040,6 +11040,14 @@ function parseSource(source, role = "assistant") {
     }
     if (node2.type === "text") {
       units.push(...decodedUnits(source, node2.position.start.offset, node2.position.end.offset, node2.value, path2));
+    } else if (node2.type === "link" && node2.url.startsWith("#media:")) {
+      let target;
+      try {
+        target = decodeURIComponent(node2.url.slice(7));
+      } catch {
+        throw new MappingError("\u6587\u4EF6\u94FE\u63A5\u7F16\u7801\u4E0D\u53D7\u652F\u6301");
+      }
+      units.push({ kind: "attachment", value: target, start: node2.position.start.offset, end: node2.position.end.offset, ancestors: path2 });
     } else if (node2.type === "inlineMath" || node2.type === "math") {
       const raw = source.slice(node2.position.start.offset, node2.position.end.offset);
       const slash = raw.startsWith("\\(") || raw.startsWith("\\[");
@@ -11135,15 +11143,18 @@ var SELECTORS = Object.freeze({
   markdown: ".aui-md",
   userBody: '[data-slot="aui_user-message-text"]',
   excluded: '[data-slot="aui_thinking-disclosure"], [data-slot="aui_reasoning-text"], [data-slot="aui_thinking-body"], [data-conversation-scaffold], button, [role="button"], input, textarea, [contenteditable], script, style, svg, [hidden]',
-  editable: 'input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [data-source-copy-dialog]',
-  menu: '[data-slot="dropdown-menu-content"][role="menu"]'
+  editable: 'input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [data-source-copy-dialog]'
 });
 var blockTags = /* @__PURE__ */ new Set(["P", "H1", "H2", "H3", "H4", "H5", "H6", "LI", "BLOCKQUOTE", "PRE", "TD", "TH", "TR", "TABLE", "HR"]);
-function selectionCopyItem(target, menu) {
-  const item = elementOf(target)?.closest('[data-slot="dropdown-menu-item"][role="menuitem"]');
-  if (!item || !menu?.contains(item) || item.getAttribute("aria-disabled") === "true") return null;
-  if (!item.querySelector("i.codicon-copy") || item.children.length !== 2 || item.children[1].tagName !== "SPAN") return null;
-  return ["Copy", "\u590D\u5236", "\u8907\u88FD", "Kopieren", "Copier", "Copiar", "Copia", "\u30B3\u30D4\u30FC", "\uBCF5\uC0AC", "\u0646\u0633\u062E"].includes(item.children[1].textContent.trim()) ? item : null;
+function attachmentName(target) {
+  const basename2 = (value) => value.split(/[\\/]/).filter(Boolean).at(-1) || target;
+  if (/^[a-z]:[\\/]/i.test(target)) return basename2(target);
+  try {
+    const url = new URL(target);
+    return url.protocol === "file:" ? basename2(decodeURIComponent(url.pathname)) : url.pathname.split("/").filter(Boolean).at(-1) || url.host;
+  } catch {
+    return basename2(target);
+  }
 }
 function elementOf(node2) {
   return node2?.nodeType === 1 ? node2 : node2?.parentElement;
@@ -11160,7 +11171,7 @@ function unitIntersects(range, unit) {
   if (unit.synthetic) return false;
   const doc = range.startContainer.ownerDocument;
   let node2 = unit.node, from = unit.from, to = unit.to;
-  if (unit.kind === "math") {
+  if (unit.element) {
     node2 = unit.element.parentNode;
     from = Array.prototype.indexOf.call(node2.childNodes, unit.element);
     to = from + 1;
@@ -11186,6 +11197,23 @@ function projectMessage(root2, bodyOverride) {
       return;
     }
     if (node2.nodeType !== 1 || node2.matches(SELECTORS.excluded)) return;
+    const name = node2.tagName === "DIV" && [...node2.children].find((child) => child.matches("span[title].truncate.flex-1"));
+    if (name && node2.children[0]?.tagName === "SPAN" && [...node2.children].filter((child) => child.tagName === "BUTTON").length === 2) {
+      const target = name.getAttribute("title");
+      if (name.textContent !== attachmentName(target)) throw new MappingError("\u6587\u4EF6\u5361\u7247\u540D\u79F0\u4E0E\u76EE\u6807\u65E0\u6CD5\u6838\u5BF9");
+      units.push({ kind: "attachment", value: target, element: node2 });
+      return;
+    }
+    if (node2.tagName === "A" && node2.getAttribute("href")?.startsWith("#media:")) {
+      let target;
+      try {
+        target = decodeURIComponent(node2.getAttribute("href").slice(7));
+      } catch {
+        throw new MappingError("\u6587\u4EF6\u94FE\u63A5\u7F16\u7801\u4E0D\u53D7\u652F\u6301");
+      }
+      units.push({ kind: "attachment", value: target, element: node2 });
+      return;
+    }
     if (node2.classList.contains("katex")) {
       const annotation = node2.querySelector('annotation[encoding="application/x-tex"]');
       if (!annotation) throw new MappingError("\u516C\u5F0F\u672A\u4FDD\u7559\u53EF\u6838\u5BF9\u7684 LaTeX");
@@ -11368,7 +11396,62 @@ function makeHistory(reply) {
     return { role: row.role, text: row.text, timestamp: row.timestamp, model };
   });
 }
-function createHistoryCache(host2, { maxEntries = 1 } = {}) {
+function bodyRow(row) {
+  if (!row || !["assistant", "user"].includes(row.role) || row.display_kind === "hidden") return null;
+  const text5 = typeof row.text === "string" ? row.text : typeof row.content === "string" ? row.content : null;
+  if (text5 === null) return null;
+  return { role: row.role, text: text5, timestamp: row.timestamp, row_id: row.row_id ?? row.id };
+}
+async function readStoredHistory(scope, read, current) {
+  const rows = [];
+  const limit = 500;
+  let characters = 0;
+  for (let offset = 0; offset < 1e4; offset += limit) {
+    if (!current()) return null;
+    const query = new URLSearchParams({ profile: scope.profile, limit: String(limit), offset: String(offset), order: "oldest", include_compacted: "true", inline_images: "false" });
+    const page = await read({
+      connectionId: scope.connectionId,
+      profile: scope.profile,
+      path: `/api/sessions/${encodeURIComponent(scope.storedId)}/messages?${query}`,
+      method: "GET",
+      timeoutMs: 15e3
+    });
+    if (!current()) return null;
+    if (page.profile && page.profile !== scope.profile) throw new Error("\u4F1A\u8BDD\u539F\u6587\u7684\u914D\u7F6E\u5F52\u5C5E\u65E0\u6CD5\u6838\u5BF9");
+    if (page.pagination && (page.pagination.order !== "oldest" || page.pagination.offset !== offset)) throw new Error("\u4F1A\u8BDD\u539F\u6587\u5206\u9875\u987A\u5E8F\u65E0\u6CD5\u6838\u5BF9");
+    if (page.pagination?.limit != null && page.pagination.limit !== limit) throw new Error("\u4F1A\u8BDD\u539F\u6587\u5206\u9875\u5927\u5C0F\u65E0\u6CD5\u6838\u5BF9");
+    const messages = Array.isArray(page.messages) ? page.messages : page.data;
+    if (!Array.isArray(messages)) throw new Error("\u4F1A\u8BDD\u5B58\u6863\u63A5\u53E3\u8FD4\u56DE\u4E86\u672A\u77E5\u7ED3\u6784");
+    if (!messages.length) return rows;
+    for (const message of messages) {
+      const row = bodyRow(message);
+      if (!row) continue;
+      rows.push(row);
+      characters += row.text.length;
+    }
+    if (!page.pagination || characters >= 1e6) return rows;
+  }
+  return rows;
+}
+function combineHistory(stored, live) {
+  if (!stored?.length) return live;
+  const latest = live.map(bodyRow).filter(Boolean);
+  for (let index2 = latest.length - 1; index2 >= 0; index2--) {
+    const row = latest[index2];
+    const candidates = stored.flatMap((candidate, at) => {
+      if (candidate.role !== row.role || candidate.text !== row.text) return [];
+      if (row.row_id != null && candidate.row_id != null && String(row.row_id) !== String(candidate.row_id)) return [];
+      return [at];
+    });
+    if (candidates.length > 1) return stored;
+    if (candidates.length === 1) {
+      if (candidates[0] !== stored.length - 1 && index2 !== latest.length - 1) return stored;
+      return [...stored, ...latest.slice(index2 + 1)];
+    }
+  }
+  return stored;
+}
+function createHistoryCache(host2, { maxEntries = 1, readPersisted } = {}) {
   const entries = /* @__PURE__ */ new Map();
   let disposed = false;
   function clear() {
@@ -11414,9 +11497,16 @@ function createHistoryCache(host2, { maxEntries = 1 } = {}) {
       const revision = state.revision;
       state.pending = (async () => {
         const route = { connectionId: scope.connectionId, profile: scope.profile, targetProfile: scope.profile, mode: scope.connectionId === "local" ? "local" : "remote" };
-        const reply = await host2.requestProfile(route, "session.history", { session_id: scope.runtimeId, profile: scope.profile }, 15e3);
-        if (disposed || revision !== state.revision) return null;
-        state.rows = makeHistory(reply);
+        const current = () => !disposed && revision === state.revision;
+        const [live, stored] = await Promise.allSettled([
+          host2.requestProfile(route, "session.history", { session_id: scope.runtimeId, profile: scope.profile }, 15e3),
+          readPersisted ? readStoredHistory(scope, readPersisted, current) : Promise.resolve(null)
+        ]);
+        if (!current()) return null;
+        const liveRows = live.status === "fulfilled" && Array.isArray(live.value?.messages) ? live.value.messages : null;
+        const storedRows = stored.status === "fulfilled" ? stored.value : null;
+        if (!liveRows && !storedRows) throw new Error("\u4F1A\u8BDD\u539F\u6587\u6682\u4E0D\u53EF\u7528");
+        state.rows = makeHistory({ messages: combineHistory(storedRows, liveRows || []) });
         state.dirty = false;
         return state.rows;
       })().finally(() => {
@@ -11558,7 +11648,7 @@ function createRawDialog(doc, ctx) {
 
 // src/controller.js
 function startController(host2, ctx, { doc = document, win = window } = {}) {
-  const cache = createHistoryCache(host2);
+  const cache = createHistoryCache(host2, { readPersisted: typeof win.hermesDesktop?.api === "function" ? (request) => win.hermesDesktop.api(request) : void 0 });
   const dialog = createRawDialog(doc, ctx);
   let disposed = false;
   let enabled = ctx.storage?.get("enabled", true) !== false;
@@ -11566,13 +11656,6 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
   let debounce = null;
   let preparation = 0;
   const unsubscribers = [];
-  let menuCopy = null;
-  let menuExpiry = null;
-  function clearMenuCopy() {
-    menuCopy = null;
-    menuExpiry?.();
-    menuExpiry = null;
-  }
   function notify(kind, message) {
     if (!disposed) host2.notify({ kind, message });
   }
@@ -11592,7 +11675,6 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
       cache.clear();
       scope = next;
       clearPreparation();
-      clearMenuCopy();
       dialog.close();
     }
     void warm(next);
@@ -11680,66 +11762,6 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
       fallback(error.message || "\u9009\u533A\u65E0\u6CD5\u51C6\u786E\u5B9A\u4F4D", target);
     }
   }
-  function onContextMenu(event) {
-    clearMenuCopy();
-    if (disposed || !enabled || event.defaultPrevented) return;
-    const selection = describeSelection(doc);
-    const element2 = elementOf(event.target);
-    if (!selection || !element2 || element2.closest(SELECTORS.editable) || element2.closest(SELECTORS.surface) !== selection.surface) return;
-    if (!selection.error && !selection.selected.some((p) => p.bodies.some((body) => body.contains(element2)))) return;
-    menuCopy = { selection, target: captureScope(host2), existing: new Set(doc.querySelectorAll(SELECTORS.menu)), menu: null };
-    menuExpiry = ctx.setTimeout(() => {
-      menuExpiry = null;
-      if (!menuCopy?.menu) clearMenuCopy();
-    }, 1e3);
-    void prepare();
-  }
-  const menuObserver = new win.MutationObserver(() => {
-    if (!menuCopy) return;
-    if (menuCopy.menu && !menuCopy.menu.isConnected) {
-      clearMenuCopy();
-      return;
-    }
-    const added = [...doc.querySelectorAll(SELECTORS.menu)].filter((menu) => !menuCopy.existing.has(menu));
-    if (added.length === 1) menuCopy.menu = added[0];
-    else if (added.length > 1) clearMenuCopy();
-  });
-  menuObserver.observe(doc.body, { childList: true, subtree: true });
-  function onMenuAction(event) {
-    if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
-    const item = selectionCopyItem(event.target, menuCopy?.menu);
-    if (!item || disposed || !enabled) return;
-    const ticket = menuCopy;
-    clearMenuCopy();
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    item.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
-    try {
-      const current = captureScope(host2);
-      if (!sameScope(ticket.target, current)) throw new MappingError("\u804A\u5929\u5DF2\u5207\u6362\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9");
-      const rows = current && cache.get(current);
-      if (!rows) throw new MappingError("\u539F\u6587\u5C1A\u672A\u5C31\u7EEA");
-      const result = materialize(ticket.selection, current, rows);
-      void Promise.resolve(ctx.os.writeClipboard(result.text)).then((ok3) => {
-        if (disposed || !enabled || !sameScope(current, captureScope(host2))) return;
-        if (ok3) notify("success", "\u5DF2\u590D\u5236\u539F\u59CB Markdown / LaTeX");
-        else fallback("\u7CFB\u7EDF\u526A\u8D34\u677F\u5199\u5165\u5931\u8D25", current);
-      }, () => {
-        if (!disposed && enabled && sameScope(current, captureScope(host2))) fallback("\u7CFB\u7EDF\u526A\u8D34\u677F\u5199\u5165\u5931\u8D25", current);
-      });
-    } catch (error) {
-      fallback(error.message || "\u9009\u533A\u65E0\u6CD5\u51C6\u786E\u5B9A\u4F4D", ticket.target);
-    }
-  }
-  ctx.addEventListener(win, "contextmenu", onContextMenu, { capture: true });
-  ctx.addEventListener(win, "click", onMenuAction, { capture: true });
-  ctx.addEventListener(win, "keydown", onMenuAction, { capture: true });
-  ctx.addEventListener(win, "keydown", (event) => {
-    if (event.key === "Escape") clearMenuCopy();
-  }, { capture: true });
-  ctx.addEventListener(win, "pointerdown", (event) => {
-    if (menuCopy?.menu && !menuCopy.menu.contains(elementOf(event.target))) clearMenuCopy();
-  }, { capture: true });
   ctx.addEventListener(win, "copy", onCopy, { capture: true });
   ctx.addEventListener(doc, "selectionchange", queuePreparation);
   ctx.addEventListener(doc, "pointerup", queuePreparation);
@@ -11765,7 +11787,6 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
       ctx.storage?.set("enabled", enabled);
       cache.clear();
       clearPreparation();
-      clearMenuCopy();
       dialog.close();
       notify("info", enabled ? "\u804A\u5929\u6E90\u7801\u590D\u5236\u5DF2\u5F00\u542F" : "\u804A\u5929\u6E90\u7801\u590D\u5236\u5DF2\u6682\u505C\uFF0C\u6062\u590D\u666E\u901A\u590D\u5236");
       if (enabled) refreshScope();
@@ -11773,18 +11794,12 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
     openRaw() {
       const target = captureScope(host2);
       fallback("\u8BF7\u5728\u539F\u6587\u7A97\u53E3\u9009\u62E9\u9700\u8981\u7684\u7247\u6BB5", target);
-    },
-    async update() {
-      const ok3 = await ctx.os.openExternal("hermes://plugin/install?repo=NeekoNoNeko/hermes-source-copy&force=1");
-      if (!ok3) notify("info", "\u65E0\u6CD5\u6253\u5F00\u5B89\u88C5\u7A97\u53E3\uFF1B\u8BF7\u5728\u80FD\u529B \u2192 \u63D2\u4EF6 \u2192 \u4ECE Git \u5B89\u88C5\u4E2D\u5F3A\u5236\u91CD\u88C5 NeekoNoNeko/hermes-source-copy");
     }
   };
   const dispose = () => {
     if (disposed) return;
     disposed = true;
     clearPreparation();
-    clearMenuCopy();
-    menuObserver.disconnect();
     debounce?.();
     unsubscribers.forEach((unsubscribe) => unsubscribe());
     cache.dispose();
@@ -11816,12 +11831,6 @@ var plugin_default = {
         label: "\u6E90\u7801\u590D\u5236\uFF1A\u67E5\u770B\u5F53\u524D\u804A\u5929\u539F\u6587",
         keywords: ["markdown", "latex", "source", "\u539F\u6587"],
         run: controller.commands.openRaw
-      } },
-      { id: "update", area: PALETTE_AREA, data: {
-        id: "hermes-source-copy.update",
-        label: "\u6E90\u7801\u590D\u5236\uFF1A\u66F4\u65B0\u63D2\u4EF6\uFF08\u5B98\u65B9\u5B89\u88C5\u7A97\u53E3\uFF09",
-        keywords: ["update", "\u66F4\u65B0", "markdown", "latex"],
-        run: controller.commands.update
       } }
     ]);
   }

@@ -9,18 +9,19 @@ export const SELECTORS = Object.freeze({
   markdown: '.aui-md',
   userBody: '[data-slot="aui_user-message-text"]',
   excluded: '[data-slot="aui_thinking-disclosure"], [data-slot="aui_reasoning-text"], [data-slot="aui_thinking-body"], [data-conversation-scaffold], button, [role="button"], input, textarea, [contenteditable], script, style, svg, [hidden]',
-  editable: 'input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [data-source-copy-dialog]',
-  menu: '[data-slot="dropdown-menu-content"][role="menu"]'
+  editable: 'input, textarea, [contenteditable="true"], [contenteditable=""], [role="textbox"], [data-source-copy-dialog]'
 })
 const blockTags = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LI', 'BLOCKQUOTE', 'PRE', 'TD', 'TH', 'TR', 'TABLE', 'HR'])
 
-// ac28abc96c AppContextMenu's selection-copy item: a copy codicon and a
-// plain localized label. Link/image/cut/terminal menus must not be retargeted.
-export function selectionCopyItem(target, menu) {
-  const item = elementOf(target)?.closest('[data-slot="dropdown-menu-item"][role="menuitem"]')
-  if (!item || !menu?.contains(item) || item.getAttribute('aria-disabled') === 'true') return null
-  if (!item.querySelector('i.codicon-copy') || item.children.length !== 2 || item.children[1].tagName !== 'SPAN') return null
-  return ['Copy', '复制', '複製', 'Kopieren', 'Copier', 'Copiar', 'Copia', 'コピー', '복사', 'نسخ'].includes(item.children[1].textContent.trim()) ? item : null
+// Mirrors the pinned client's previewName for display verification only.
+// Parsing a URL never opens it or resolves paths on either machine.
+function attachmentName(target) {
+  const basename = value => value.split(/[\\/]/).filter(Boolean).at(-1) || target
+  if (/^[a-z]:[\\/]/i.test(target)) return basename(target)
+  try {
+    const url = new URL(target)
+    return url.protocol === 'file:' ? basename(decodeURIComponent(url.pathname)) : url.pathname.split('/').filter(Boolean).at(-1) || url.host
+  } catch { return basename(target) }
 }
 
 export function elementOf(node) { return node?.nodeType === 1 ? node : node?.parentElement }
@@ -36,7 +37,7 @@ export function unitIntersects(range, unit) {
   if (unit.synthetic) return false
   const doc = range.startContainer.ownerDocument
   let node = unit.node, from = unit.from, to = unit.to
-  if (unit.kind === 'math') {
+  if (unit.element) {
     node = unit.element.parentNode
     from = Array.prototype.indexOf.call(node.childNodes, unit.element)
     to = from + 1
@@ -66,6 +67,22 @@ export function projectMessage(root, bodyOverride) {
       return
     }
     if (node.nodeType !== 1 || node.matches(SELECTORS.excluded)) return
+    // PreviewAttachment replaces a #media file link's label with the basename
+    // and stores its exact target in the filename span's title. Verify the
+    // pinned card structure; never read a file or execute its action buttons.
+    const name = node.tagName === 'DIV' && [...node.children].find(child => child.matches('span[title].truncate.flex-1'))
+    if (name && node.children[0]?.tagName === 'SPAN' && [...node.children].filter(child => child.tagName === 'BUTTON').length === 2) {
+      const target = name.getAttribute('title')
+      if (name.textContent !== attachmentName(target)) throw new MappingError('文件卡片名称与目标无法核对')
+      units.push({ kind: 'attachment', value: target, element: node })
+      return
+    }
+    if (node.tagName === 'A' && node.getAttribute('href')?.startsWith('#media:')) {
+      let target
+      try { target = decodeURIComponent(node.getAttribute('href').slice(7)) } catch { throw new MappingError('文件链接编码不受支持') }
+      units.push({ kind: 'attachment', value: target, element: node })
+      return
+    }
     if (node.classList.contains('katex')) {
       const annotation = node.querySelector('annotation[encoding="application/x-tex"]')
       if (!annotation) throw new MappingError('公式未保留可核对的 LaTeX')

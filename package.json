@@ -1,6 +1,6 @@
 {
   "name": "hermes-source-copy",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "description": "Copy original Markdown and LaTeX selections in Hermes Desktop",
