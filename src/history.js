@@ -102,7 +102,7 @@ export function createHistoryCache(host, { maxEntries = 1, readPersisted } = {})
   function entry(scope) {
     let state = entries.get(scope.key)
     if (!state) {
-      state = { scope, rows: null, dirty: true, pending: null, revision: 0 }
+      state = { scope, rows: null, dirty: true, pending: null, failed: false, revision: 0 }
       entries.set(scope.key, state)
       while (entries.size > maxEntries) {
         const oldest = entries.keys().next().value
@@ -115,18 +115,24 @@ export function createHistoryCache(host, { maxEntries = 1, readPersisted } = {})
   return {
     clear,
     get(scope) { const state = entries.get(scope.key); return state && !state.dirty ? state.rows : null },
+    status(scope) {
+      const state = entries.get(scope.key)
+      return !state ? 'empty' : !state.dirty && state.rows ? 'ready' : state.failed ? 'error' : state.pending?.revision === state.revision ? 'loading' : 'empty'
+    },
     invalidate(scope) {
       if (!scope) return
       const state = entry(scope)
-      state.dirty = true; state.revision++
+      state.dirty = true; state.failed = false; state.revision++
     },
     async load(scope) {
       if (disposed) return null
       const state = entry(scope)
-      if (state.pending) return state.pending
+      if (state.pending?.revision === state.revision) return state.pending.promise
       if (!state.dirty && state.rows) return state.rows
       const revision = state.revision
-      state.pending = (async () => {
+      const pending = { revision, promise: null }
+      state.pending = pending; state.failed = false
+      pending.promise = (async () => {
         const route = { connectionId: scope.connectionId, profile: scope.profile, targetProfile: scope.profile, mode: scope.connectionId === 'local' ? 'local' : 'remote' }
         const current = () => !disposed && revision === state.revision
         const [live, stored] = await Promise.allSettled([
@@ -139,8 +145,11 @@ export function createHistoryCache(host, { maxEntries = 1, readPersisted } = {})
         if (!liveRows && !storedRows) throw new Error('会话原文暂不可用')
         state.rows = makeHistory({ messages: combineHistory(storedRows, liveRows || []) }); state.dirty = false
         return state.rows
-      })().finally(() => { state.pending = null })
-      return state.pending
+      })().catch(error => {
+        if (!disposed && revision === state.revision) state.failed = true
+        throw error
+      }).finally(() => { if (state.pending === pending) state.pending = null })
+      return pending.promise
     },
     dispose() { disposed = true; clear() }
   }

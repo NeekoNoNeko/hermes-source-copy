@@ -1,5 +1,5 @@
 import { extractSource, MappingError } from './source-map.js'
-import { SELECTORS, alignProjection, describeSelection, matchHistory, projectMessage, projectMessageParts, selectedTokenSpan, unitIntersects } from './dom-adapter.js'
+import { SELECTORS, elementOf, alignProjection, describeSelection, matchHistory, projectMessage, projectMessageParts, selectedTokenSpan, unitIntersects } from './dom-adapter.js'
 import { captureScope, sameScope, scopeOwnsSurface, createHistoryCache } from './history.js'
 import { createRawDialog } from './raw-dialog.js'
 
@@ -10,29 +10,31 @@ export function startController(host, ctx, { doc = document, win = window } = {}
   let enabled = ctx.storage?.get('enabled', true) !== false
   let scope = captureScope(host)
   let debounce = null
-  let preparation = 0
+  let copyGeneration = 0
   const unsubscribers = []
   function notify(kind, message) { if (!disposed) host.notify({ kind, message }) }
-  function clearPreparation() { preparation++ }
+  function clearCopyPrompt() { copyGeneration++ }
   async function warm(target) {
     if (!target || disposed || !enabled) return
     try { await cache.load(target) } catch { /* On copy, explain and offer raw view. */ }
   }
   function refreshScope() {
     const next = captureScope(host)
-    if (!sameScope(scope, next)) { cache.clear(); scope = next; clearPreparation(); dialog.close() }
+    if (!sameScope(scope, next)) { cache.clear(); scope = next; clearCopyPrompt(); dialog.close() }
     void warm(next)
   }
   function queuePreparation() {
-    clearPreparation()
     debounce?.()
     debounce = ctx.setTimeout(() => { debounce = null; void prepare() }, 80)
   }
-  function materialize(selection, target, rows) {
+  function validateSelection(selection, target) {
     if (selection.error) throw new MappingError(selection.error)
     if (!selection.surface.isConnected || selection.selected.some(p => !p.root.isConnected)) throw new MappingError('消息正文已发生变化，请重新选择')
     if (!scopeOwnsSurface(host, target, selection.surface)) throw new MappingError('选区的会话归属尚未确认')
     if (selection.selected.some(p => p.root.querySelector('[data-message-streaming="true"]'))) throw new MappingError('消息仍在生成，请完成后再复制')
+  }
+  function materialize(selection, target, rows) {
+    validateSelection(selection, target)
     const hasSource = projection => rows.some(row => alignProjection(projection, row.model))
     const projections = [...selection.surface.querySelectorAll(SELECTORS.message)].flatMap(root => {
       try {
@@ -57,17 +59,11 @@ export function startController(host, ctx, { doc = document, win = window } = {}
   }
   async function prepare() {
     if (!enabled || disposed) return
-    const selection = describeSelection(doc)
     const target = captureScope(host)
-    if (!selection || !target) return
-    const request = ++preparation
-    try {
-      const rows = await cache.load(target)
-      if (disposed || request !== preparation || !sameScope(target, captureScope(host)) || !rows) return
-      const current = describeSelection(doc)
-      if (!current) return
-      materialize(current, target, rows)
-    } catch { /* Preserve the selection; copy will show the raw fallback. */ }
+    if (!target || cache.get(target) || !describeSelection(doc)) return
+    // Warm only: full DOM/source matching is revalidated by the copy event.
+    // Running it again on every selection change needlessly stalls long chats.
+    await warm(target)
   }
   function fallback(reason, target, selectedRows = []) {
     notify('info', `${reason}；本次未复制，已打开源码窗口。`)
@@ -76,8 +72,28 @@ export function startController(host, ctx, { doc = document, win = window } = {}
       return await cache.load(target)
     } })
   }
+  async function waitForSource(selection, target, request) {
+    notify('info', '原文正在加载，本次尚未复制；就绪后请再次按 Ctrl+C。')
+    function stillSelected() {
+      if (disposed || !enabled || request !== copyGeneration || !sameScope(target, captureScope(host))) return null
+      const current = describeSelection(doc), a = selection.range, b = current?.range
+      return current?.surface === selection.surface && a.startContainer === b.startContainer && a.startOffset === b.startOffset &&
+        a.endContainer === b.endContainer && a.endOffset === b.endOffset ? current : null
+    }
+    try {
+      const rows = await cache.load(target)
+      const current = stillSelected()
+      if (!rows || !current) return
+      materialize(current, target, rows)
+      notify('info', '原文已就绪，请再次按 Ctrl+C 复制。')
+    } catch (error) {
+      if (stillSelected()) fallback(error.message || '会话原文暂不可用', target)
+    }
+    // Never asynchronously write the clipboard after the user's copy event.
+  }
   function onCopy(event) {
     if (disposed || !enabled || event.defaultPrevented) return
+    const request = ++copyGeneration
     let selection
     try { selection = describeSelection(doc) } catch { return }
     if (!selection) return
@@ -88,8 +104,13 @@ export function startController(host, ctx, { doc = document, win = window } = {}
     try {
       if (!target) throw new MappingError('会话原文暂不可用')
       if (!event.clipboardData) throw new MappingError('当前复制事件没有可写剪贴板')
+      validateSelection(selection, target)
       const rows = cache.get(target)
-      if (!rows) throw new MappingError('原文尚未就绪')
+      if (!rows) {
+        if (cache.status(target) === 'error') throw new MappingError('会话原文暂不可用')
+        void waitForSource(selection, target, request)
+        return
+      }
       // Revalidate live DOM and selection on every copy, even after warmup.
       const result = materialize(selection, target, rows)
       event.clipboardData.clearData()
@@ -100,6 +121,12 @@ export function startController(host, ctx, { doc = document, win = window } = {}
     }
   }
   ctx.addEventListener(win, 'copy', onCopy, { capture: true })
+  ctx.addEventListener(win, 'blur', clearCopyPrompt)
+  ctx.addEventListener(doc, 'focusin', clearCopyPrompt)
+  ctx.addEventListener(doc, 'pointerdown', event => {
+    clearCopyPrompt()
+    if (elementOf(event.target)?.closest(SELECTORS.message)) void warm(captureScope(host))
+  })
   ctx.addEventListener(doc, 'selectionchange', queuePreparation)
   ctx.addEventListener(doc, 'pointerup', queuePreparation)
   for (const name of ['focusedSessionId', 'focusedStoredSessionId', 'focusedSessionOwner', 'gateway']) {
@@ -113,7 +140,7 @@ export function startController(host, ctx, { doc = document, win = window } = {}
       const current = captureScope(host)
       const eventSession = event.session_id ?? event.payload?.session_id
       if (eventSession && current && eventSession !== current.runtimeId && eventSession !== current.storedId) return
-      cache.invalidate(current); clearPreparation()
+      cache.invalidate(current); clearCopyPrompt()
       if (!['message.start', 'message.delta'].includes(type)) void warm(current)
     })
   }
@@ -121,18 +148,19 @@ export function startController(host, ctx, { doc = document, win = window } = {}
     toggle() {
       enabled = !enabled
       ctx.storage?.set('enabled', enabled)
-      cache.clear(); clearPreparation(); dialog.close()
+      cache.clear(); clearCopyPrompt(); dialog.close()
       notify('info', enabled ? '聊天源码复制已开启' : '聊天源码复制已暂停，恢复普通复制')
       if (enabled) refreshScope()
     },
     openRaw() {
+      clearCopyPrompt()
       const target = captureScope(host)
       fallback('请在原文窗口选择需要的片段', target)
     }
   }
   const dispose = () => {
     if (disposed) return
-    disposed = true; clearPreparation(); debounce?.()
+    disposed = true; clearCopyPrompt(); debounce?.()
     unsubscribers.forEach(unsubscribe => unsubscribe())
     cache.dispose(); dialog.close()
   }

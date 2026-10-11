@@ -4,6 +4,9 @@ Review date: 2026-10-11. Hermes source baseline: `ac28abc96c`.
 
 ## Findings and changes
 
+- v1.0.5 separates transient loading from failed mapping: cold copies preserve the old clipboard and selection, never report success and never perform delayed clipboard writes. Ready/error UI is guarded by copy generation, exact selection endpoints, current scope and plugin lifecycle; blur, focus changes, clicks and subsequent copy events cancel late UI. Full stored history remains required before resolving duplicate identity. A ready RPC alone cannot certify uniqueness.
+- Invalidated reads may be superseded immediately; only the current revision can commit rows or set a failure flag, and an old completion cannot clear a newer pending handle. Error status stores a boolean only. Pointer prefetch and lighter selection warmup use the same qualified, bounded data routes; no new permissions, transport or persistence were added.
+
 - v1.0.4 narrows ordered-list number completion to full items or cross-sibling selections using source token spans and AST ancestry. It never strips numeric text, guesses offsets or changes routing, permissions, storage or transport. Partial inline formatting and math still use exact original wrappers/source. Synthetic fixtures cover this behavior; the user excerpt remains in an ignored local file.
 
 Reviewed first-party runtime source, build/package/install/uninstall scripts, the generated ESM bundle, dependency advisories, and files intended for public Git publication.

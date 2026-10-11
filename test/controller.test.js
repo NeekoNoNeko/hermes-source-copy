@@ -235,17 +235,26 @@ test('cross-chat selection opens raw view and does not write guessed source', as
   f.ctx.dispose()
 })
 
-test('unready source blocks copy and asynchronously opens the original text', async () => {
+test('unready source keeps the selection and clipboard without a modal; a second copy succeeds', async () => {
   let finish
   const pending = new Promise(resolve => { finish = resolve })
   const f = await controllerFixture('__原文__', [], () => pending)
+  let writes = 0
+  f.ctx.os.writeClipboard = async () => { writes++; return true }
   selectText(f.doc, '原文')
+  const node = f.doc.getSelection().anchorNode
   const result = dispatchCopy(f)
   assert.equal(result.data.get('text/plain'), 'previous clipboard')
-  assert.ok(f.doc.querySelector('[data-source-copy-dialog]'))
+  assert.equal(f.doc.querySelector('[data-source-copy-dialog]'), null)
+  assert.equal(f.doc.getSelection().anchorNode, node)
+  assert.match(f.notices.at(-1).message, /正在加载.*尚未复制/)
   finish({ messages: [{ role: 'assistant', text: '__原文__' }] })
   await tick()
-  assert.equal(f.doc.querySelector('textarea').value, '__原文__')
+  assert.equal(f.doc.querySelector('[data-source-copy-dialog]'), null)
+  assert.match(f.notices.at(-1).message, /已就绪.*再次/)
+  assert.equal(writes, 0)
+  assert.equal(result.data.get('text/plain'), 'previous clipboard')
+  assert.equal(dispatchCopy(f).data.get('text/plain'), '__原文__')
   f.ctx.dispose()
 })
 

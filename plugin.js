@@ -1,4 +1,4 @@
-// Hermes Source Copy 1.0.4 — MIT — built for Hermes Desktop ac28abc96c
+// Hermes Source Copy 1.0.5 — MIT — built for Hermes Desktop ac28abc96c
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -11483,7 +11483,7 @@ function createHistoryCache(host2, { maxEntries = 1, readPersisted } = {}) {
   function entry(scope) {
     let state = entries.get(scope.key);
     if (!state) {
-      state = { scope, rows: null, dirty: true, pending: null, revision: 0 };
+      state = { scope, rows: null, dirty: true, pending: null, failed: false, revision: 0 };
       entries.set(scope.key, state);
       while (entries.size > maxEntries) {
         const oldest = entries.keys().next().value;
@@ -11502,19 +11502,27 @@ function createHistoryCache(host2, { maxEntries = 1, readPersisted } = {}) {
       const state = entries.get(scope.key);
       return state && !state.dirty ? state.rows : null;
     },
+    status(scope) {
+      const state = entries.get(scope.key);
+      return !state ? "empty" : !state.dirty && state.rows ? "ready" : state.failed ? "error" : state.pending?.revision === state.revision ? "loading" : "empty";
+    },
     invalidate(scope) {
       if (!scope) return;
       const state = entry(scope);
       state.dirty = true;
+      state.failed = false;
       state.revision++;
     },
     async load(scope) {
       if (disposed) return null;
       const state = entry(scope);
-      if (state.pending) return state.pending;
+      if (state.pending?.revision === state.revision) return state.pending.promise;
       if (!state.dirty && state.rows) return state.rows;
       const revision = state.revision;
-      state.pending = (async () => {
+      const pending = { revision, promise: null };
+      state.pending = pending;
+      state.failed = false;
+      pending.promise = (async () => {
         const route = { connectionId: scope.connectionId, profile: scope.profile, targetProfile: scope.profile, mode: scope.connectionId === "local" ? "local" : "remote" };
         const current = () => !disposed && revision === state.revision;
         const [live, stored] = await Promise.allSettled([
@@ -11528,10 +11536,13 @@ function createHistoryCache(host2, { maxEntries = 1, readPersisted } = {}) {
         state.rows = makeHistory({ messages: combineHistory(storedRows, liveRows || []) });
         state.dirty = false;
         return state.rows;
-      })().finally(() => {
-        state.pending = null;
+      })().catch((error) => {
+        if (!disposed && revision === state.revision) state.failed = true;
+        throw error;
+      }).finally(() => {
+        if (state.pending === pending) state.pending = null;
       });
-      return state.pending;
+      return pending.promise;
     },
     dispose() {
       disposed = true;
@@ -11673,13 +11684,13 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
   let enabled = ctx.storage?.get("enabled", true) !== false;
   let scope = captureScope(host2);
   let debounce = null;
-  let preparation = 0;
+  let copyGeneration = 0;
   const unsubscribers = [];
   function notify(kind, message) {
     if (!disposed) host2.notify({ kind, message });
   }
-  function clearPreparation() {
-    preparation++;
+  function clearCopyPrompt() {
+    copyGeneration++;
   }
   async function warm(target) {
     if (!target || disposed || !enabled) return;
@@ -11693,24 +11704,26 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
     if (!sameScope(scope, next)) {
       cache.clear();
       scope = next;
-      clearPreparation();
+      clearCopyPrompt();
       dialog.close();
     }
     void warm(next);
   }
   function queuePreparation() {
-    clearPreparation();
     debounce?.();
     debounce = ctx.setTimeout(() => {
       debounce = null;
       void prepare();
     }, 80);
   }
-  function materialize(selection, target, rows) {
+  function validateSelection(selection, target) {
     if (selection.error) throw new MappingError(selection.error);
     if (!selection.surface.isConnected || selection.selected.some((p) => !p.root.isConnected)) throw new MappingError("\u6D88\u606F\u6B63\u6587\u5DF2\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9");
     if (!scopeOwnsSurface(host2, target, selection.surface)) throw new MappingError("\u9009\u533A\u7684\u4F1A\u8BDD\u5F52\u5C5E\u5C1A\u672A\u786E\u8BA4");
     if (selection.selected.some((p) => p.root.querySelector('[data-message-streaming="true"]'))) throw new MappingError("\u6D88\u606F\u4ECD\u5728\u751F\u6210\uFF0C\u8BF7\u5B8C\u6210\u540E\u518D\u590D\u5236");
+  }
+  function materialize(selection, target, rows) {
+    validateSelection(selection, target);
     const hasSource = (projection) => rows.some((row) => alignProjection(projection, row.model));
     const projections = [...selection.surface.querySelectorAll(SELECTORS.message)].flatMap((root2) => {
       try {
@@ -11736,18 +11749,9 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
   }
   async function prepare() {
     if (!enabled || disposed) return;
-    const selection = describeSelection(doc);
     const target = captureScope(host2);
-    if (!selection || !target) return;
-    const request = ++preparation;
-    try {
-      const rows = await cache.load(target);
-      if (disposed || request !== preparation || !sameScope(target, captureScope(host2)) || !rows) return;
-      const current = describeSelection(doc);
-      if (!current) return;
-      materialize(current, target, rows);
-    } catch {
-    }
+    if (!target || cache.get(target) || !describeSelection(doc)) return;
+    await warm(target);
   }
   function fallback(reason, target, selectedRows = []) {
     notify("info", `${reason}\uFF1B\u672C\u6B21\u672A\u590D\u5236\uFF0C\u5DF2\u6253\u5F00\u6E90\u7801\u7A97\u53E3\u3002`);
@@ -11756,8 +11760,26 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
       return await cache.load(target);
     } });
   }
+  async function waitForSource(selection, target, request) {
+    notify("info", "\u539F\u6587\u6B63\u5728\u52A0\u8F7D\uFF0C\u672C\u6B21\u5C1A\u672A\u590D\u5236\uFF1B\u5C31\u7EEA\u540E\u8BF7\u518D\u6B21\u6309 Ctrl+C\u3002");
+    function stillSelected() {
+      if (disposed || !enabled || request !== copyGeneration || !sameScope(target, captureScope(host2))) return null;
+      const current = describeSelection(doc), a = selection.range, b = current?.range;
+      return current?.surface === selection.surface && a.startContainer === b.startContainer && a.startOffset === b.startOffset && a.endContainer === b.endContainer && a.endOffset === b.endOffset ? current : null;
+    }
+    try {
+      const rows = await cache.load(target);
+      const current = stillSelected();
+      if (!rows || !current) return;
+      materialize(current, target, rows);
+      notify("info", "\u539F\u6587\u5DF2\u5C31\u7EEA\uFF0C\u8BF7\u518D\u6B21\u6309 Ctrl+C \u590D\u5236\u3002");
+    } catch (error) {
+      if (stillSelected()) fallback(error.message || "\u4F1A\u8BDD\u539F\u6587\u6682\u4E0D\u53EF\u7528", target);
+    }
+  }
   function onCopy(event) {
     if (disposed || !enabled || event.defaultPrevented) return;
+    const request = ++copyGeneration;
     let selection;
     try {
       selection = describeSelection(doc);
@@ -11771,8 +11793,13 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
     try {
       if (!target) throw new MappingError("\u4F1A\u8BDD\u539F\u6587\u6682\u4E0D\u53EF\u7528");
       if (!event.clipboardData) throw new MappingError("\u5F53\u524D\u590D\u5236\u4E8B\u4EF6\u6CA1\u6709\u53EF\u5199\u526A\u8D34\u677F");
+      validateSelection(selection, target);
       const rows = cache.get(target);
-      if (!rows) throw new MappingError("\u539F\u6587\u5C1A\u672A\u5C31\u7EEA");
+      if (!rows) {
+        if (cache.status(target) === "error") throw new MappingError("\u4F1A\u8BDD\u539F\u6587\u6682\u4E0D\u53EF\u7528");
+        void waitForSource(selection, target, request);
+        return;
+      }
       const result = materialize(selection, target, rows);
       event.clipboardData.clearData();
       event.clipboardData.setData("text/plain", result.text);
@@ -11782,6 +11809,12 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
     }
   }
   ctx.addEventListener(win, "copy", onCopy, { capture: true });
+  ctx.addEventListener(win, "blur", clearCopyPrompt);
+  ctx.addEventListener(doc, "focusin", clearCopyPrompt);
+  ctx.addEventListener(doc, "pointerdown", (event) => {
+    clearCopyPrompt();
+    if (elementOf(event.target)?.closest(SELECTORS.message)) void warm(captureScope(host2));
+  });
   ctx.addEventListener(doc, "selectionchange", queuePreparation);
   ctx.addEventListener(doc, "pointerup", queuePreparation);
   for (const name of ["focusedSessionId", "focusedStoredSessionId", "focusedSessionOwner", "gateway"]) {
@@ -11796,7 +11829,7 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
       const eventSession = event.session_id ?? event.payload?.session_id;
       if (eventSession && current && eventSession !== current.runtimeId && eventSession !== current.storedId) return;
       cache.invalidate(current);
-      clearPreparation();
+      clearCopyPrompt();
       if (!["message.start", "message.delta"].includes(type)) void warm(current);
     });
   }
@@ -11805,12 +11838,13 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
       enabled = !enabled;
       ctx.storage?.set("enabled", enabled);
       cache.clear();
-      clearPreparation();
+      clearCopyPrompt();
       dialog.close();
       notify("info", enabled ? "\u804A\u5929\u6E90\u7801\u590D\u5236\u5DF2\u5F00\u542F" : "\u804A\u5929\u6E90\u7801\u590D\u5236\u5DF2\u6682\u505C\uFF0C\u6062\u590D\u666E\u901A\u590D\u5236");
       if (enabled) refreshScope();
     },
     openRaw() {
+      clearCopyPrompt();
       const target = captureScope(host2);
       fallback("\u8BF7\u5728\u539F\u6587\u7A97\u53E3\u9009\u62E9\u9700\u8981\u7684\u7247\u6BB5", target);
     }
@@ -11818,7 +11852,7 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
   const dispose = () => {
     if (disposed) return;
     disposed = true;
-    clearPreparation();
+    clearCopyPrompt();
     debounce?.();
     unsubscribers.forEach((unsubscribe) => unsubscribe());
     cache.dispose();

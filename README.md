@@ -14,6 +14,8 @@ An independent community **Desktop-only** plugin, using the [official ESM SDK](h
 
 The repository includes a **prebuilt root `plugin.js`**, which the official installer detects as a standalone Desktop plugin. Git installation needs Git, but no Node.js, npm build, Python, or API key. There is no Agent plugin manifest. This is a Git-installable community repository; it does not claim inclusion in the official catalog. See the [official Git installation guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins).
 
+**v1.0.5:** fixes cold-copy loading and a stale in-flight read that could block refresh after a message completed. Temporary loading keeps the selection and shows a non-modal “not copied yet” notice; when ready, press Ctrl+C again. The plugin never asynchronously writes a delayed copy. Pointer-down prefetch starts earlier, and selection warmup no longer repeats full message matching. Actual failures still open the source window.
+
 **v1.0.4:** fixes an extra list number when copying a phrase inside an ordered item. Partial single-item selections copy only the selected source with necessary inline formatting; complete items and selections spanning sibling items retain the original numbers. Literal numbers in selected prose are never stripped.
 
 **v1.0.3:** restores copying of older replies retained after compaction by reading the stored display transcript. Delivered `#media:` file cards map to their complete original links, so a file card no longer prevents matching surrounding text or tables. The plugin installation/update command and right-click adapter have been removed; native right-click behavior is restored. Ctrl+C/Cmd+C source copying and the source window remain available.
@@ -37,7 +39,9 @@ Update through **Capabilities → Plugins → Install from Git**, using the same
 
 Syntax completion and whole-formula/table expansion extend some selections. Content and added markers come from the original source; a result may combine several source slices.
 
-Unavailable source, streaming messages, cross-chat selections, ambiguous repeated messages, and unsupported DOM structures block copying and open a **source window**. Choose a message, select its source, and copy normally, or use select-all/copy-whole-message buttons. Automatic copying failure leaves the previous clipboard unchanged.
+When source is still loading, copying is blocked with a non-modal notice that explicitly says nothing has been copied. The selection stays in place; press Ctrl+C again after the ready notice. Moving focus, clicking, copying elsewhere, changing sessions, pausing or unloading suppresses late notices/windows. Clipboard writes occur only during the new copy event, never after the background read.
+
+Failed source reads, streaming messages, cross-chat selections, ambiguous repeated messages, and unsupported DOM structures block copying and open a **source window**. Choose a message, select its source, and copy normally, or use select-all/copy-whole-message buttons. Automatic copying failure leaves the previous clipboard unchanged.
 
 HTML, inline images/audio/video, footnotes, unsupported special cards, and some complex code/media layouts may require the source window. Messages over 200,000 UTF-16 characters use this window; parsed source is limited to 1,000,000 characters per session read. Source means the focused session’s stored display transcript plus its qualified `session.history` tail. Stored reads include compacted/ancestor replies and are bounded to 20 pages of 500 raw rows or 1,000,000 body characters. A bridge-less client falls back to RPC; omitted or unread data requires the source window. DOM adaptation is centralized in `src/dom-adapter.js`; client upgrades may need adaptation.
 
