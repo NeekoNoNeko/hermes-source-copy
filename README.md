@@ -14,6 +14,8 @@ An independent community **Desktop-only** plugin, using the [official ESM SDK](h
 
 The repository includes a **prebuilt root `plugin.js`**, which the official installer detects as a standalone Desktop plugin. Git installation needs Git, but no Node.js, npm build, Python, or API key. There is no Agent plugin manifest. This is a Git-installable community repository; it does not claim inclusion in the official catalog. See the [official Git installation guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins).
 
+**v1.0.4:** fixes an extra list number when copying a phrase inside an ordered item. Partial single-item selections copy only the selected source with necessary inline formatting; complete items and selections spanning sibling items retain the original numbers. Literal numbers in selected prose are never stripped.
+
 **v1.0.3:** restores copying of older replies retained after compaction by reading the stored display transcript. Delivered `#media:` file cards map to their complete original links, so a file card no longer prevents matching surrounding text or tables. The plugin installation/update command and right-click adapter have been removed; native right-click behavior is restored. Ctrl+C/Cmd+C source copying and the source window remain available.
 
 ## Updates
@@ -28,7 +30,7 @@ Update through **Capabilities → Plugins → Install from Git**, using the same
 - Selecting `文字` inside `__一段文字__` produces `__文字__`. Partial bold, italic, strikethrough, links, and inline code use the original markers to complete the fragment.
 - Touching any part of a formula copies the **entire original formula**, preserving `$...$`, `$$...$$`, `\(...\)`, or `\[...\]`.
 - This includes exact literal formula runs and `.katex-error` spans. Chinese is not inherently invalid LaTeX: the baseline escapes CJK inline math as prose, while valid Chinese display math can render normally. Clipboard output always comes from the original formula.
-- Lists, quotes, headings, and code blocks retain their original markers. Selecting table cells copies the **entire original table**.
+- Complete ordered items and selections across sibling items retain their original number markers. A phrase inside a single ordered item does not gain a number, even when it starts at the first word. Quotes, unordered lists, headings, and code blocks retain their original markers. Selecting table cells copies the **entire original table**.
 - Selections across messages in the same chat join in display order using two newlines, without role labels.
 - Clipboard output is only `text/plain`; rich-text data cannot override the source.
 - Inputs, terminals, settings, reasoning sections, and empty selections keep normal copying.

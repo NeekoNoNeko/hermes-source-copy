@@ -219,11 +219,32 @@ export function extractSource(model, fromToken, toToken, { fullCodeSpans = [] } 
     start = Math.min(start, table.position.start.offset)
     end = Math.max(end, table.position.end.offset)
   }
-  // Structural prefixes (headings/list items/quotes) are source slices,
-  // not canonical Markdown. Take the exact prefix of each touched ancestor.
+  // Structural prefixes are exact source slices, not canonical Markdown.
+  // An ordered item's number belongs to the item, not an arbitrary phrase
+  // inside it. Retain it only for a complete item or a cross-item selection.
   const structural = path.filter(n => ['listItem', 'blockquote'].includes(n.type))
+  const touched = new Set(path)
+  const orderedItems = new Map()
+  for (const node of structural) {
+    const list = path.find(parent => parent.type === 'list' && parent.ordered && parent.children.includes(node))
+    if (list) orderedItems.set(node, { list, first: Infinity, last: -1 })
+  }
+  // One pass keeps nested or long lists from rescanning the whole message
+  // for every selected item. Synthetic block separators have no source span.
+  if (orderedItems.size) model.tokens.forEach((token, index) => {
+    for (const unit of token.members) {
+      if (unit.start === null) continue
+      for (const ancestor of unit.ancestors) {
+        const span = orderedItems.get(ancestor)
+        if (span) { span.first = Math.min(span.first, index); span.last = index }
+      }
+    }
+  })
   let prefix = ''
   for (const node of structural.sort((a, b) => a.position.start.offset - b.position.start.offset)) {
+    const span = orderedItems.get(node)
+    if (span && !(fromToken <= span.first && toToken > span.last) &&
+        !span.list.children.some(sibling => sibling !== node && touched.has(sibling))) continue
     const first = node.children?.[0]
     let prefixEnd = first?.position.start.offset
     if (prefixEnd > node.position.start.offset && start >= prefixEnd && start < node.position.end.offset) {
@@ -232,7 +253,6 @@ export function extractSource(model, fromToken, toToken, { fullCodeSpans = [] } 
     }
   }
   let result = model.source.slice(start, end)
-  const touched = new Set(path)
   const touchedWrappers = model.wrappers.filter(w => touched.has(w.node))
   const opening = touchedWrappers.filter(w => start >= w.from && start < w.to)
     .sort((a, b) => a.node.position.start.offset - b.node.position.start.offset)

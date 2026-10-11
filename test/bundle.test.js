@@ -11,8 +11,8 @@ test('production ESM bundle loads, registers and copies using SDK alone', async 
   assert.equal(info.sha256, createHash('sha256').update(bundle).digest('hex'))
   assert.match(bundle, /from "@hermes\/plugin-sdk"/)
   assert.doesNotMatch(bundle, /\beval\s*\(|new Function\s*\(/)
-  const f = await fixture('__生产包原文__')
-  const { host } = fakeHost([{ role: 'assistant', text: '__生产包原文__' }])
+  const f = await fixture('3. 前面 __生产包原文__ 后面')
+  const { host } = fakeHost([{ role: 'assistant', text: f.source }])
   const ctx = fakeContext()
   const contributions = []
   ctx.registerMany = rows => { contributions.push(...rows) }

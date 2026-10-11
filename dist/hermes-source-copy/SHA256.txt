@@ -1,1 +1,1 @@
-b97b099768b15bf7eeafe63dec10030f102ac7fbfaf43877d6a9a16afd698fc4  plugin.js
+3be8d652f83c5ccacdbb1c1cc04cf8a1fbd1439b141e728f28b0e239f1c6b2d9  plugin.js

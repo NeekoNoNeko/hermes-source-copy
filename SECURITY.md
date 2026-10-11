@@ -1,8 +1,10 @@
 # Security and privacy review / 安全与隐私审查
 
-Review date: 2026-10-08. Hermes source baseline: `ac28abc96c`.
+Review date: 2026-10-11. Hermes source baseline: `ac28abc96c`.
 
 ## Findings and changes
+
+- v1.0.4 narrows ordered-list number completion to full items or cross-sibling selections using source token spans and AST ancestry. It never strips numeric text, guesses offsets or changes routing, permissions, storage or transport. Partial inline formatting and math still use exact original wrappers/source. Synthetic fixtures cover this behavior; the user excerpt remains in an ignored local file.
 
 Reviewed first-party runtime source, build/package/install/uninstall scripts, the generated ESM bundle, dependency advisories, and files intended for public Git publication.
 

@@ -1,4 +1,4 @@
-// Hermes Source Copy 1.0.3 — MIT — built for Hermes Desktop ac28abc96c
+// Hermes Source Copy 1.0.4 — MIT — built for Hermes Desktop ac28abc96c
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -11115,8 +11115,28 @@ function extractSource(model, fromToken, toToken, { fullCodeSpans = [] } = {}) {
     end = Math.max(end, table.position.end.offset);
   }
   const structural = path2.filter((n) => ["listItem", "blockquote"].includes(n.type));
+  const touched = new Set(path2);
+  const orderedItems = /* @__PURE__ */ new Map();
+  for (const node2 of structural) {
+    const list3 = path2.find((parent) => parent.type === "list" && parent.ordered && parent.children.includes(node2));
+    if (list3) orderedItems.set(node2, { list: list3, first: Infinity, last: -1 });
+  }
+  if (orderedItems.size) model.tokens.forEach((token, index2) => {
+    for (const unit of token.members) {
+      if (unit.start === null) continue;
+      for (const ancestor of unit.ancestors) {
+        const span = orderedItems.get(ancestor);
+        if (span) {
+          span.first = Math.min(span.first, index2);
+          span.last = index2;
+        }
+      }
+    }
+  });
   let prefix = "";
   for (const node2 of structural.sort((a, b) => a.position.start.offset - b.position.start.offset)) {
+    const span = orderedItems.get(node2);
+    if (span && !(fromToken <= span.first && toToken > span.last) && !span.list.children.some((sibling) => sibling !== node2 && touched.has(sibling))) continue;
     const first = node2.children?.[0];
     let prefixEnd = first?.position.start.offset;
     if (prefixEnd > node2.position.start.offset && start >= prefixEnd && start < node2.position.end.offset) {
@@ -11125,7 +11145,6 @@ function extractSource(model, fromToken, toToken, { fullCodeSpans = [] } = {}) {
     }
   }
   let result = model.source.slice(start, end);
-  const touched = new Set(path2);
   const touchedWrappers = model.wrappers.filter((w) => touched.has(w.node));
   const opening = touchedWrappers.filter((w) => start >= w.from && start < w.to).sort((a, b) => a.node.position.start.offset - b.node.position.start.offset).map((w) => model.source.slice(w.node.position.start.offset, w.from)).join("");
   const closing = touchedWrappers.filter((w) => end > w.from && end <= w.to).sort((a, b) => a.node.position.end.offset - b.node.position.end.offset).map((w) => model.source.slice(w.to, w.node.position.end.offset)).join("");
