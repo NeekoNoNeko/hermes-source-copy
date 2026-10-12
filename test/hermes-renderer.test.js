@@ -37,7 +37,7 @@ test('official Hermes Streamdown/math DOM copies bold, formulas, and table with 
     assert.equal(dispatchCopy(f).data.get('text/plain'), original)
   }
   selectText(f.doc, '⚠️非阶乘')
-  assert.equal(dispatchCopy(f).data.get('text/plain'), source.slice(source.indexOf('| 函数'), source.indexOf('\n\n最后')))
+  assert.equal(dispatchCopy(f).data.get('text/plain'), '⚠️非阶乘')
   ctx.dispose()
 })
 

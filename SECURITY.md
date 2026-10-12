@@ -1,8 +1,10 @@
 # Security and privacy review / 安全与隐私审查
 
-Review date: 2026-10-11. Hermes source baseline: `ac28abc96c`.
+Review date: 2026-10-12. Hermes source baseline: `ac28abc96c`.
 
 ## Findings and changes
+
+- v1.0.6 narrows table expansion when every selected source unit belongs to the same AST tableCell. Repeated content uses node identity, never text search; source slicing, inline wrappers and whole-formula completion are unchanged. Cross-cell/table-boundary selections still expand touched tables. No new transport, permissions, persistence or clipboard route. The supplied integral table stays in ignored local files.
 
 - v1.0.5 separates transient loading from failed mapping: cold copies preserve the old clipboard and selection, never report success and never perform delayed clipboard writes. Ready/error UI is guarded by copy generation, exact selection endpoints, current scope and plugin lifecycle; blur, focus changes, clicks and subsequent copy events cancel late UI. Full stored history remains required before resolving duplicate identity. A ready RPC alone cannot certify uniqueness.
 - Invalidated reads may be superseded immediately; only the current revision can commit rows or set a failure flag, and an old completion cannot clear a newer pending handle. Error status stores a boolean only. Pointer prefetch and lighter selection warmup use the same qualified, bounded data routes; no new permissions, transport or persistence were added.

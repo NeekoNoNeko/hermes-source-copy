@@ -24,7 +24,7 @@ for (const [source, selected, expected] of [
   ['> - 嵌套文字', '文字', '> - 文字'],
   ['```js\nconst x = 1;\n```', 'x', '```js\nx\n```'],
   ['~~~python\nx = 1\n~~~', 'x', '~~~python\nx\n~~~'],
-  ['| 甲 | 乙 |\n| --- | --- |\n| 一 | 二 |', '二', '| 甲 | 乙 |\n| --- | --- |\n| 一 | 二 |']
+  ['| 甲 | 乙 |\n| --- | --- |\n| 一 | 二 |', '二', '二']
 ]) {
   test(`exact selection: ${source}`, async () => {
     const f = await fixture(source)

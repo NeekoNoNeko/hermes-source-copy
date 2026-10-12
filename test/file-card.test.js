@@ -33,7 +33,7 @@ test('official table and attachment DOM allow copying anywhere in the complete r
     ['系统结构','系统结构'],
     ['仅作示例','**仅作示例**'],
     ['下一组数据','**下一组数据**'],
-    ['15（含基地2）',source.slice(source.indexOf('| 专业代码'),source.indexOf('\n\n方向'))],
+    ['15（含基地2）','15（含基地2）'],
     ['汇总.md',link]
   ]) {
     selectText(f.doc,selected)

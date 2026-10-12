@@ -11,7 +11,7 @@ test('production ESM bundle loads, registers and copies using SDK alone', async 
   assert.equal(info.sha256, createHash('sha256').update(bundle).digest('hex'))
   assert.match(bundle, /from "@hermes\/plugin-sdk"/)
   assert.doesNotMatch(bundle, /\beval\s*\(|new Function\s*\(/)
-  const f = await fixture('3. 前面 __生产包原文__ 后面')
+  const f = await fixture('3. 前面 __生产包原文__ 后面\n\n| 甲 | 乙 |\n|---|---|\n| **生产包单元格** | $p>1$ |')
   const { host } = fakeHost([{ role: 'assistant', text: f.source }])
   const ctx = fakeContext()
   const contributions = []
@@ -28,6 +28,11 @@ test('production ESM bundle loads, registers and copies using SDK alone', async 
     assert.equal(contributions.length, 2)
     selectText(f.doc, '原文')
     assert.equal(dispatchCopy(f).data.get('text/plain'), '__原文__')
+    selectText(f.doc, '单元格')
+    assert.equal(dispatchCopy(f).data.get('text/plain'), '**单元格**')
+    const range = f.doc.createRange(); range.selectNode(f.doc.querySelector('.katex'))
+    f.doc.getSelection().removeAllRanges(); f.doc.getSelection().addRange(range)
+    assert.equal(dispatchCopy(f).data.get('text/plain'), '$p>1$')
   } finally {
     ctx.dispose()
     if (globals.document === undefined) delete globalThis.document; else globalThis.document = globals.document

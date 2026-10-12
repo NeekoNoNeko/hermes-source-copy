@@ -1,4 +1,4 @@
-// Hermes Source Copy 1.0.5 — MIT — built for Hermes Desktop ac28abc96c
+// Hermes Source Copy 1.0.6 — MIT — built for Hermes Desktop ac28abc96c
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -11109,8 +11109,9 @@ function extractSource(model, fromToken, toToken, { fullCodeSpans = [] } = {}) {
       end = Math.max(end, node2.position.end.offset);
     }
   }
-  const table = path2.find((n) => n.type === "table");
-  if (table) {
+  const cell = path2.find((n) => n.type === "tableCell");
+  const singleCell = cell && members.every((unit) => unit.ancestors.includes(cell));
+  for (const table of singleCell ? [] : path2.filter((n) => n.type === "table")) {
     start = Math.min(start, table.position.start.offset);
     end = Math.max(end, table.position.end.offset);
   }

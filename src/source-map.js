@@ -214,8 +214,12 @@ export function extractSource(model, fromToken, toToken, { fullCodeSpans = [] } 
       end = Math.max(end, node.position.end.offset)
     }
   }
-  const table = path.find(n => n.type === 'table')
-  if (table) {
+  // A cell is also a useful standalone selection. Expand table structure only
+  // when selected source units leave that cell; identity comes from the AST,
+  // so repeated text/formulas in different cells cannot collapse together.
+  const cell = path.find(n => n.type === 'tableCell')
+  const singleCell = cell && members.every(unit => unit.ancestors.includes(cell))
+  for (const table of singleCell ? [] : path.filter(n => n.type === 'table')) {
     start = Math.min(start, table.position.start.offset)
     end = Math.max(end, table.position.end.offset)
   }
