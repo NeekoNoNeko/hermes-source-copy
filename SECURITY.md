@@ -1,8 +1,10 @@
 # Security and privacy review / 安全与隐私审查
 
-Review date: 2026-10-12. Hermes source baseline: `ac28abc96c`.
+Review date: 2026-10-15. Hermes source baseline: `ac28abc96c`.
 
 ## Findings and changes
+
+- v1.0.7 matches standalone image MEDIA directives and image-delivery links against known ordered image DOM states. Caption/basename evidence is allowed only for matching surrounding source; duplicate candidates remain ambiguous. Selected image atoms require an exact target URL, otherwise copying (including whole-reply selection) falls back to literal source. Data URL pixels are not decoded, retained or treated as path proof. No React internals, image file reads, media requests, shell execution, new permissions or persistence. Unknown shapes, renamed images and conflicting visible targets fail closed.
 
 - v1.0.6 narrows table expansion when every selected source unit belongs to the same AST tableCell. Repeated content uses node identity, never text search; source slicing, inline wrappers and whole-formula completion are unchanged. Cross-cell/table-boundary selections still expand touched tables. No new transport, permissions, persistence or clipboard route. The supplied integral table stays in ignored local files.
 

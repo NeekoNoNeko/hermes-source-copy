@@ -14,6 +14,8 @@ An independent community **Desktop-only** plugin, using the [official ESM SDK](h
 
 The repository includes a **prebuilt root `plugin.js`**, which the official installer detects as a standalone Desktop plugin. Git installation needs Git, but no Node.js, npm build, Python, or API key. There is no Agent plugin manifest. This is a Git-installable community repository; it does not claim inclusion in the official catalog. See the [official Git installation guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins).
 
+**v1.0.7:** recognizes standalone image `MEDIA:` directives and image-delivery `#media:` links across loading, loaded and failed image states. Surrounding prose, lists and code can copy without the image blocking the reply. An image selected without proof of its original path still opens the source window; its filename or data URL is never treated as path proof.
+
 **v1.0.6:** selections contained in one table cell now copy only the selected original content, completing necessary inline markup and whole formulas. Crossing cells or leaving a cell for surrounding prose still includes the complete touched table.
 
 **v1.0.5:** fixes cold-copy loading and a stale in-flight read that could block refresh after a message completed. Temporary loading keeps the selection and shows a non-modal “not copied yet” notice; when ready, press Ctrl+C again. The plugin never asynchronously writes a delayed copy. Pointer-down prefetch starts earlier, and selection warmup no longer repeats full message matching. Actual failures still open the source window.
@@ -35,6 +37,7 @@ Update through **Capabilities → Plugins → Install from Git**, using the same
 - Touching any part of a formula copies the **entire original formula**, preserving `$...$`, `$$...$$`, `\(...\)`, or `\[...\]`.
 - This includes exact literal formula runs and `.katex-error` spans. Chinese is not inherently invalid LaTeX: the baseline escapes CJK inline math as prose, while valid Chinese display math can render normally. Clipboard output always comes from the original formula.
 - Complete ordered items and selections across sibling items retain their original number markers. A phrase inside a single ordered item does not gain a number, even when it starts at the first word. Quotes, unordered lists, headings, and code blocks retain their original markers. Selections contained in one table cell copy only the selected original content. Crossing cells or extending outside a cell copies the **entire original table**.
+- Standalone `MEDIA:` image lines and image-delivery `#media:` links are matched in body order, without reading their files. Non-image selections can copy around them. If the selection touches an image, its display URL must exactly prove the original target; otherwise use the source window, including for whole-reply selections spanning that image. Ordinary Markdown images, other media and unsupported delivery syntax may still need the source window.
 - Selections across messages in the same chat join in display order using two newlines, without role labels.
 - Clipboard output is only `text/plain`; rich-text data cannot override the source.
 - Inputs, terminals, settings, reasoning sections, and empty selections keep normal copying.

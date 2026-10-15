@@ -1,4 +1,5 @@
 import { MappingError, normalizeUnits, parseSource } from './source-map.js'
+import { imageName, isImageTarget } from './media-source.js'
 
 // Only this adapter depends on Hermes' ac28abc96c DOM. No React internals,
 // synthetic composer events, or client source patches are used.
@@ -67,6 +68,29 @@ export function projectMessage(root, bodyOverride) {
       return
     }
     if (node.nodeType !== 1 || node.matches(SELECTORS.excluded)) return
+    if (node.matches('span[data-slot="aui_markdown-image"]')) {
+      const images = [...node.querySelectorAll('img')]
+      const directText = [...node.childNodes].filter(child => child.nodeType === 3).map(child => child.textContent).join('')
+      let name, target = null
+      if (images.length === 1 && node.children.length === 1 && !directText.trim() &&
+          images[0].closest('[data-slot="aui_zoomable-image"]')?.parentElement === node) {
+        name = images[0].getAttribute('alt')
+        const src = images[0].getAttribute('src') || ''
+        // A data URL contains pixels, not the original target. Do not retain
+        // it, decode it, read React internals or ask the gateway for the file.
+        if (/^(?:https?:|file:|\/|~\/|[a-z]:[\\/])/i.test(src)) target = src
+      } else if (!images.length && !directText.trim() && node.children.length === 1 && node.firstElementChild.tagName === 'SPAN' &&
+          !node.firstElementChild.children.length && node.firstElementChild.textContent.startsWith('Loading ') && node.firstElementChild.textContent.endsWith('...')) {
+        name = node.firstElementChild.textContent.slice(8, -3)
+      } else if (!images.length && node.children.length === 1 && node.firstElementChild.tagName === 'BUTTON' &&
+          node.firstElementChild.textContent === 'Open image' &&
+          directText.startsWith("Couldn't load ") && directText.endsWith('. ')) {
+        name = directText.slice(14, -2)
+      }
+      if (!name) throw new MappingError('图片展示结构无法核对，请在原文窗口复制')
+      units.push({ kind: 'image', value: name, target, unverifiedMedia: true, element: node })
+      return
+    }
     // PreviewAttachment replaces a #media file link's label with the basename
     // and stores its exact target in the filename span's title. Verify the
     // pinned card structure; never read a file or execute its action buttons.
@@ -130,17 +154,25 @@ export function projectMessageParts(root, whole = projectMessage(root)) {
 // so touching even one literal formula character selects its source atom.
 export function alignProjection(projection, model) {
   if (!model || model.role !== projection.role) return null
-  if (model.signature === projection.signature) return projection
+  if (model.signature === projection.signature && !projection.tokens?.some(token => token.members.some(unit => unit.kind === 'image'))) return projection
   if (!projection.tokens) return null
   const aligned = []
   let cursor = 0
   for (const token of model.tokens) {
+    const image = token.members.find(unit => unit.kind === 'image' || unit.kind === 'attachment' && isImageTarget(unit.value))
+    const displayedImage = projection.tokens[cursor]?.members.find(unit => unit.kind === 'image')
+    if (image && displayedImage) {
+      if (imageName(image.value) !== displayedImage.value || displayedImage.target && displayedImage.target !== image.value) return null
+      aligned.push({ key: token.key, members: projection.tokens[cursor++].members.map(unit => ({ ...unit, unverifiedMedia: !displayedImage.target })) })
+      continue
+    }
     if (token.key === projection.tokens[cursor]?.key) {
       aligned.push(projection.tokens[cursor++]); continue
     }
     const math = token.members.find(unit => unit.kind === 'math')
-    if (!math) return null
-    const raw = model.source.slice(math.start, math.end)
+    if (!math && !image) return null
+    const atom = math || image
+    const raw = model.source.slice(atom.start, atom.end)
     const variants = [raw]
     // The client also converts bracket delimiters before its CJK guard.
     if (raw.startsWith('\\(') && raw.endsWith('\\)')) variants.push('$' + raw.slice(2, -2) + '$')
@@ -149,7 +181,7 @@ export function alignProjection(projection, model) {
     // entities and inline emphasis can therefore affect their visible text.
     // Parse that exact alternate form, while keeping the original math atom
     // as the only source of clipboard output. Cache keys in session memory.
-    if (!math.literalVariants) math.literalVariants = variants.flatMap(value => {
+    if (!atom.literalVariants) atom.literalVariants = variants.flatMap(value => {
       const keys = [normalizeUnits(value.split('').map(value => ({ kind: 'text', value })))]
       if (value.startsWith('$') && value.endsWith('$')) {
         const count = value.startsWith('$$') ? 2 : 1
@@ -160,7 +192,7 @@ export function alignProjection(projection, model) {
       }
       return keys
     })
-    const matches = math.literalVariants
+    const matches = atom.literalVariants
       .filter(keys => keys.every((key, index) => key.key === projection.tokens[cursor + index]?.key))
     const lengths = [...new Set(matches.map(keys => keys.length))]
     if (lengths.length !== 1) return null
@@ -206,6 +238,9 @@ export function selectedTokenSpan(projection, range) {
     if (token.members.some(u => unitIntersects(range, u))) selected.push(index)
   })
   if (!selected.length) throw new MappingError('选区没有可定位的正文')
+  if (selected.some(index => projection.tokens[index].members.some(unit => unit.unverifiedMedia))) {
+    throw new MappingError('选中的图片未保留可核对的原路径，请在原文窗口复制')
+  }
   const fullCodeSpans = []
   for (const body of projection.bodies) {
     for (const code of body.querySelectorAll('pre code, [data-slot="code-card"] code')) {

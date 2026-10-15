@@ -1,4 +1,4 @@
-// Hermes Source Copy 1.0.6 — MIT — built for Hermes Desktop ac28abc96c
+// Hermes Source Copy 1.0.7 — MIT — built for Hermes Desktop ac28abc96c
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -10898,6 +10898,28 @@ var EncodingMode;
   EncodingMode2[EncodingMode2["Text"] = 4] = "Text";
 })(EncodingMode || (EncodingMode = {}));
 
+// src/media-source.js
+function isImageTarget(target) {
+  return /\.(?:bmp|gif|jpe?g|png|svg|webp)(?:[?#].*)?$/i.test(target);
+}
+function imageName(target) {
+  if (!/^[a-z]:[\\/]/i.test(target)) {
+    try {
+      return new URL(target).pathname.split("/").filter(Boolean).at(-1) || target;
+    } catch {
+    }
+  }
+  return target.split(/[\\/]/).filter(Boolean).at(-1) || target;
+}
+function imageDirectives(source) {
+  return [...source.matchAll(/^[\t ]{0,3}(MEDIA:[\t ]*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\r\n]+?)))[\t ]*\r?$/gm)].flatMap((match) => {
+    const target = match[2] ?? match[3] ?? match[4];
+    if (!target || target !== target.trim() || !isImageTarget(target)) return [];
+    const start = match.index + match[0].indexOf("MEDIA:");
+    return [{ target, start, end: start + match[1].length }];
+  });
+}
+
 // src/source-map.js
 var parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath);
 var blocks = /* @__PURE__ */ new Set(["paragraph", "heading", "listItem", "blockquote", "code", "math", "tableCell", "tableRow", "table", "thematicBreak"]);
@@ -10946,7 +10968,7 @@ function normalizeUnits(units) {
         continue;
       }
       result.push({ key: " ", members: [unit] });
-    } else result.push({ key: unit.kind === "math" ? `math:${unit.value.trim()}` : unit.kind === "attachment" ? `attachment:${unit.value}` : `text:${unit.value}`, members: [unit] });
+    } else result.push({ key: unit.kind === "math" ? `math:${unit.value.trim()}` : unit.kind === "attachment" ? `attachment:${unit.value}` : unit.kind === "image" ? `image:${unit.value}` : `text:${unit.value}`, members: [unit] });
   }
   while (result[0]?.key === " ") result.shift();
   while (result.at(-1)?.key === " ") result.pop();
@@ -11021,6 +11043,7 @@ function parseSource(source, role = "assistant") {
   if (typeof source !== "string" || source.length > 2e5) throw new MappingError("\u6D88\u606F\u8FC7\u957F\u6216\u539F\u6587\u4E0D\u53EF\u7528");
   const normalized = role === "user" ? source : normalizeMath(source);
   const tree = parser.parse(normalized);
+  const images = role === "user" ? [] : imageDirectives(source);
   const units = [];
   const wrappers = [];
   const definitions = /* @__PURE__ */ new Map();
@@ -11039,7 +11062,21 @@ function parseSource(source, role = "assistant") {
       return;
     }
     if (node2.type === "text") {
-      units.push(...decodedUnits(source, node2.position.start.offset, node2.position.end.offset, node2.value, path2));
+      const start = node2.position.start.offset, end = node2.position.end.offset;
+      const runs = images.filter((image2) => image2.start >= start && image2.end <= end);
+      if (!runs.length) units.push(...decodedUnits(source, start, end, node2.value, path2));
+      else {
+        const decoded = decodedUnits(source, start, end, node2.value, path2);
+        let at = 0;
+        for (const image2 of runs) {
+          while (at < decoded.length && decoded[at].end <= image2.start) units.push(decoded[at++]);
+          const body = [];
+          while (at < decoded.length && decoded[at].start < image2.end) body.push(decoded[at++]);
+          if (!body.length || body[0].start !== image2.start || body.at(-1).end !== image2.end) throw new MappingError("\u56FE\u7247\u6307\u4EE4\u8FB9\u754C\u65E0\u6CD5\u6838\u5BF9");
+          units.push({ kind: "image", value: image2.target, start: image2.start, end: image2.end, ancestors: path2 });
+        }
+        units.push(...decoded.slice(at));
+      }
     } else if (node2.type === "link" && node2.url.startsWith("#media:")) {
       let target;
       try {
@@ -11217,6 +11254,23 @@ function projectMessage(root2, bodyOverride) {
       return;
     }
     if (node2.nodeType !== 1 || node2.matches(SELECTORS.excluded)) return;
+    if (node2.matches('span[data-slot="aui_markdown-image"]')) {
+      const images = [...node2.querySelectorAll("img")];
+      const directText = [...node2.childNodes].filter((child) => child.nodeType === 3).map((child) => child.textContent).join("");
+      let name2, target = null;
+      if (images.length === 1 && node2.children.length === 1 && !directText.trim() && images[0].closest('[data-slot="aui_zoomable-image"]')?.parentElement === node2) {
+        name2 = images[0].getAttribute("alt");
+        const src = images[0].getAttribute("src") || "";
+        if (/^(?:https?:|file:|\/|~\/|[a-z]:[\\/])/i.test(src)) target = src;
+      } else if (!images.length && !directText.trim() && node2.children.length === 1 && node2.firstElementChild.tagName === "SPAN" && !node2.firstElementChild.children.length && node2.firstElementChild.textContent.startsWith("Loading ") && node2.firstElementChild.textContent.endsWith("...")) {
+        name2 = node2.firstElementChild.textContent.slice(8, -3);
+      } else if (!images.length && node2.children.length === 1 && node2.firstElementChild.tagName === "BUTTON" && node2.firstElementChild.textContent === "Open image" && directText.startsWith("Couldn't load ") && directText.endsWith(". ")) {
+        name2 = directText.slice(14, -2);
+      }
+      if (!name2) throw new MappingError("\u56FE\u7247\u5C55\u793A\u7ED3\u6784\u65E0\u6CD5\u6838\u5BF9\uFF0C\u8BF7\u5728\u539F\u6587\u7A97\u53E3\u590D\u5236");
+      units.push({ kind: "image", value: name2, target, unverifiedMedia: true, element: node2 });
+      return;
+    }
     const name = node2.tagName === "DIV" && [...node2.children].find((child) => child.matches("span[title].truncate.flex-1"));
     if (name && node2.children[0]?.tagName === "SPAN" && [...node2.children].filter((child) => child.tagName === "BUTTON").length === 2) {
       const target = name.getAttribute("title");
@@ -11277,22 +11331,30 @@ function projectMessageParts(root2, whole = projectMessage(root2)) {
 }
 function alignProjection(projection, model) {
   if (!model || model.role !== projection.role) return null;
-  if (model.signature === projection.signature) return projection;
+  if (model.signature === projection.signature && !projection.tokens?.some((token) => token.members.some((unit) => unit.kind === "image"))) return projection;
   if (!projection.tokens) return null;
   const aligned = [];
   let cursor = 0;
   for (const token of model.tokens) {
+    const image2 = token.members.find((unit) => unit.kind === "image" || unit.kind === "attachment" && isImageTarget(unit.value));
+    const displayedImage = projection.tokens[cursor]?.members.find((unit) => unit.kind === "image");
+    if (image2 && displayedImage) {
+      if (imageName(image2.value) !== displayedImage.value || displayedImage.target && displayedImage.target !== image2.value) return null;
+      aligned.push({ key: token.key, members: projection.tokens[cursor++].members.map((unit) => ({ ...unit, unverifiedMedia: !displayedImage.target })) });
+      continue;
+    }
     if (token.key === projection.tokens[cursor]?.key) {
       aligned.push(projection.tokens[cursor++]);
       continue;
     }
     const math2 = token.members.find((unit) => unit.kind === "math");
-    if (!math2) return null;
-    const raw = model.source.slice(math2.start, math2.end);
+    if (!math2 && !image2) return null;
+    const atom = math2 || image2;
+    const raw = model.source.slice(atom.start, atom.end);
     const variants = [raw];
     if (raw.startsWith("\\(") && raw.endsWith("\\)")) variants.push("$" + raw.slice(2, -2) + "$");
     if (raw.startsWith("\\[") && raw.endsWith("\\]")) variants.push("$$" + raw.slice(2, -2) + "$$");
-    if (!math2.literalVariants) math2.literalVariants = variants.flatMap((value) => {
+    if (!atom.literalVariants) atom.literalVariants = variants.flatMap((value) => {
       const keys = [normalizeUnits(value.split("").map((value2) => ({ kind: "text", value: value2 })))];
       if (value.startsWith("$") && value.endsWith("$")) {
         const count = value.startsWith("$$") ? 2 : 1;
@@ -11304,7 +11366,7 @@ function alignProjection(projection, model) {
       }
       return keys;
     });
-    const matches = math2.literalVariants.filter((keys) => keys.every((key, index2) => key.key === projection.tokens[cursor + index2]?.key));
+    const matches = atom.literalVariants.filter((keys) => keys.every((key, index2) => key.key === projection.tokens[cursor + index2]?.key));
     const lengths = [...new Set(matches.map((keys) => keys.length))];
     if (lengths.length !== 1) return null;
     const length = lengths[0];
@@ -11345,6 +11407,9 @@ function selectedTokenSpan(projection, range) {
     if (token.members.some((u) => unitIntersects(range, u))) selected.push(index2);
   });
   if (!selected.length) throw new MappingError("\u9009\u533A\u6CA1\u6709\u53EF\u5B9A\u4F4D\u7684\u6B63\u6587");
+  if (selected.some((index2) => projection.tokens[index2].members.some((unit) => unit.unverifiedMedia))) {
+    throw new MappingError("\u9009\u4E2D\u7684\u56FE\u7247\u672A\u4FDD\u7559\u53EF\u6838\u5BF9\u7684\u539F\u8DEF\u5F84\uFF0C\u8BF7\u5728\u539F\u6587\u7A97\u53E3\u590D\u5236");
+  }
   const fullCodeSpans = [];
   for (const body of projection.bodies) {
     for (const code3 of body.querySelectorAll('pre code, [data-slot="code-card"] code')) {

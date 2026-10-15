@@ -11,7 +11,11 @@ test('production ESM bundle loads, registers and copies using SDK alone', async 
   assert.equal(info.sha256, createHash('sha256').update(bundle).digest('hex'))
   assert.match(bundle, /from "@hermes\/plugin-sdk"/)
   assert.doesNotMatch(bundle, /\beval\s*\(|new Function\s*\(/)
-  const f = await fixture('3. 前面 __生产包原文__ 后面\n\n| 甲 | 乙 |\n|---|---|\n| **生产包单元格** | $p>1$ |')
+  const f = await fixture('3. 前面 __生产包原文__ 后面\n\n| 甲 | 乙 |\n|---|---|\n| **生产包单元格** | $p>1$ |\n\nMEDIA:/fixtures/images/first.png\n\n**图片后的原文**')
+  const snapshot = f.doc.createElement('template')
+  snapshot.innerHTML = await readFile('test/fixtures/hermes-media-images-ready.html', 'utf8')
+  const imageParagraph = [...f.doc.querySelectorAll('p')].find(p => p.textContent.startsWith('MEDIA:'))
+  imageParagraph.replaceChildren(snapshot.content.querySelector('[data-slot="aui_markdown-image"]'))
   const { host } = fakeHost([{ role: 'assistant', text: f.source }])
   const ctx = fakeContext()
   const contributions = []
@@ -33,6 +37,12 @@ test('production ESM bundle loads, registers and copies using SDK alone', async 
     const range = f.doc.createRange(); range.selectNode(f.doc.querySelector('.katex'))
     f.doc.getSelection().removeAllRanges(); f.doc.getSelection().addRange(range)
     assert.equal(dispatchCopy(f).data.get('text/plain'), '$p>1$')
+    selectText(f.doc, '图片后的原文')
+    assert.equal(dispatchCopy(f).data.get('text/plain'), '**图片后的原文**')
+    range.selectNodeContents(f.doc.querySelector('[data-slot="aui_markdown-image"]'))
+    f.doc.getSelection().removeAllRanges(); f.doc.getSelection().addRange(range)
+    assert.equal(dispatchCopy(f).data.get('text/plain'), 'previous clipboard')
+    assert.ok(f.doc.querySelector('[data-source-copy-dialog]'))
   } finally {
     ctx.dispose()
     if (globals.document === undefined) delete globalThis.document; else globalThis.document = globals.document
