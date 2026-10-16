@@ -170,8 +170,9 @@ export function alignProjection(projection, model) {
       aligned.push(projection.tokens[cursor++]); continue
     }
     const math = token.members.find(unit => unit.kind === 'math')
-    if (!math && !image) return null
-    const atom = math || image
+    const directive = token.members.find(unit => unit.mediaDirective)
+    if (!math && !image && !directive) return null
+    const atom = math || image || directive
     const raw = model.source.slice(atom.start, atom.end)
     const variants = [raw]
     // The client also converts bracket delimiters before its CJK guard.

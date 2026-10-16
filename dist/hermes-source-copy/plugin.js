@@ -1,4 +1,4 @@
-// Hermes Source Copy 1.0.7 — MIT — built for Hermes Desktop ac28abc96c
+// Hermes Source Copy 1.0.8 — MIT — built for Hermes Desktop ac28abc96c
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -10911,12 +10911,13 @@ function imageName(target) {
   }
   return target.split(/[\\/]/).filter(Boolean).at(-1) || target;
 }
-function imageDirectives(source) {
+function mediaDirectives(source) {
   return [...source.matchAll(/^[\t ]{0,3}(MEDIA:[\t ]*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\r\n]+?)))[\t ]*\r?$/gm)].flatMap((match) => {
     const target = match[2] ?? match[3] ?? match[4];
-    if (!target || target !== target.trim() || !isImageTarget(target)) return [];
+    if (!target || target !== target.trim() || !(target.includes("/") || target.includes("\\") || /\.[^.]/.test(target))) return [];
+    if (/\.(?:avi|flac|m4a|mkv|mov|mp3|mp4|ogg|opus|wav|webm)(?:[?#].*)?$/i.test(target)) return [];
     const start = match.index + match[0].indexOf("MEDIA:");
-    return [{ target, start, end: start + match[1].length }];
+    return [{ target, kind: isImageTarget(target) ? "image" : "attachment", start, end: start + match[1].length }];
   });
 }
 
@@ -11043,7 +11044,7 @@ function parseSource(source, role = "assistant") {
   if (typeof source !== "string" || source.length > 2e5) throw new MappingError("\u6D88\u606F\u8FC7\u957F\u6216\u539F\u6587\u4E0D\u53EF\u7528");
   const normalized = role === "user" ? source : normalizeMath(source);
   const tree = parser.parse(normalized);
-  const images = role === "user" ? [] : imageDirectives(source);
+  const media = role === "user" ? [] : mediaDirectives(source);
   const units = [];
   const wrappers = [];
   const definitions = /* @__PURE__ */ new Map();
@@ -11063,17 +11064,17 @@ function parseSource(source, role = "assistant") {
     }
     if (node2.type === "text") {
       const start = node2.position.start.offset, end = node2.position.end.offset;
-      const runs = images.filter((image2) => image2.start >= start && image2.end <= end);
+      const runs = media.filter((delivery) => delivery.start >= start && delivery.end <= end);
       if (!runs.length) units.push(...decodedUnits(source, start, end, node2.value, path2));
       else {
         const decoded = decodedUnits(source, start, end, node2.value, path2);
         let at = 0;
-        for (const image2 of runs) {
-          while (at < decoded.length && decoded[at].end <= image2.start) units.push(decoded[at++]);
+        for (const delivery of runs) {
+          while (at < decoded.length && decoded[at].end <= delivery.start) units.push(decoded[at++]);
           const body = [];
-          while (at < decoded.length && decoded[at].start < image2.end) body.push(decoded[at++]);
-          if (!body.length || body[0].start !== image2.start || body.at(-1).end !== image2.end) throw new MappingError("\u56FE\u7247\u6307\u4EE4\u8FB9\u754C\u65E0\u6CD5\u6838\u5BF9");
-          units.push({ kind: "image", value: image2.target, start: image2.start, end: image2.end, ancestors: path2 });
+          while (at < decoded.length && decoded[at].start < delivery.end) body.push(decoded[at++]);
+          if (!body.length || body[0].start !== delivery.start || body.at(-1).end !== delivery.end) throw new MappingError("\u5A92\u4F53\u6307\u4EE4\u8FB9\u754C\u65E0\u6CD5\u6838\u5BF9");
+          units.push({ kind: delivery.kind, value: delivery.target, start: delivery.start, end: delivery.end, mediaDirective: true, ancestors: path2 });
         }
         units.push(...decoded.slice(at));
       }
@@ -11348,8 +11349,9 @@ function alignProjection(projection, model) {
       continue;
     }
     const math2 = token.members.find((unit) => unit.kind === "math");
-    if (!math2 && !image2) return null;
-    const atom = math2 || image2;
+    const directive = token.members.find((unit) => unit.mediaDirective);
+    if (!math2 && !image2 && !directive) return null;
+    const atom = math2 || image2 || directive;
     const raw = model.source.slice(atom.start, atom.end);
     const variants = [raw];
     if (raw.startsWith("\\(") && raw.endsWith("\\)")) variants.push("$" + raw.slice(2, -2) + "$");

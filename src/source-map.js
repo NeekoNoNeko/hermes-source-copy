@@ -3,7 +3,7 @@ import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { decodeHTMLStrict } from 'entities'
-import { imageDirectives } from './media-source.js'
+import { mediaDirectives } from './media-source.js'
 
 const parser = unified().use(remarkParse).use(remarkGfm).use(remarkMath)
 const blocks = new Set(['paragraph', 'heading', 'listItem', 'blockquote', 'code', 'math', 'tableCell', 'tableRow', 'table', 'thematicBreak'])
@@ -128,7 +128,7 @@ export function parseSource(source, role = 'assistant') {
   if (typeof source !== 'string' || source.length > 200_000) throw new MappingError('消息过长或原文不可用')
   const normalized = role === 'user' ? source : normalizeMath(source)
   const tree = parser.parse(normalized)
-  const images = role === 'user' ? [] : imageDirectives(source)
+  const media = role === 'user' ? [] : mediaDirectives(source)
   const units = []
   const wrappers = []
   const definitions = new Map()
@@ -150,19 +150,19 @@ export function parseSource(source, role = 'assistant') {
     }
     if (node.type === 'text') {
       const start = node.position.start.offset, end = node.position.end.offset
-      const runs = images.filter(image => image.start >= start && image.end <= end)
+      const runs = media.filter(delivery => delivery.start >= start && delivery.end <= end)
       if (!runs.length) units.push(...decodedUnits(source, start, end, node.value, path))
       else {
         // Map the unmodified text first, so escapes and entities before/after
         // a directive keep their exact original spans.
         const decoded = decodedUnits(source, start, end, node.value, path)
         let at = 0
-        for (const image of runs) {
-          while (at < decoded.length && decoded[at].end <= image.start) units.push(decoded[at++])
+        for (const delivery of runs) {
+          while (at < decoded.length && decoded[at].end <= delivery.start) units.push(decoded[at++])
           const body = []
-          while (at < decoded.length && decoded[at].start < image.end) body.push(decoded[at++])
-          if (!body.length || body[0].start !== image.start || body.at(-1).end !== image.end) throw new MappingError('图片指令边界无法核对')
-          units.push({ kind: 'image', value: image.target, start: image.start, end: image.end, ancestors: path })
+          while (at < decoded.length && decoded[at].start < delivery.end) body.push(decoded[at++])
+          if (!body.length || body[0].start !== delivery.start || body.at(-1).end !== delivery.end) throw new MappingError('媒体指令边界无法核对')
+          units.push({ kind: delivery.kind, value: delivery.target, start: delivery.start, end: delivery.end, mediaDirective: true, ancestors: path })
         }
         units.push(...decoded.slice(at))
       }

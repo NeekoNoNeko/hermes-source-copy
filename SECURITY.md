@@ -1,8 +1,10 @@
 # Security and privacy review / 安全与隐私审查
 
-Review date: 2026-10-15. Hermes source baseline: `ac28abc96c`.
+Review date: 2026-10-16. Hermes source baseline: `ac28abc96c`.
 
 ## Findings and changes
+
+- v1.0.8 recognizes standalone non-audio/video file MEDIA directives as atomic source spans. Existing card checks still require the complete target, verified filename and known structure; no basename-only target inference. Exact original directive slices (including quotes/spacing) are copied, with no file reads, download/open/execute actions or delayed clipboard writes. Duplicate raw-directive/link candidates remain ambiguous. Tests use synthetic addresses only; the supplied reply and email addresses remain in ignored local files. No new routes, permissions or persistence.
 
 - v1.0.7 matches standalone image MEDIA directives and image-delivery links against known ordered image DOM states. Caption/basename evidence is allowed only for matching surrounding source; duplicate candidates remain ambiguous. Selected image atoms require an exact target URL, otherwise copying (including whole-reply selection) falls back to literal source. Data URL pixels are not decoded, retained or treated as path proof. No React internals, image file reads, media requests, shell execution, new permissions or persistence. Unknown shapes, renamed images and conflicting visible targets fail closed.
 

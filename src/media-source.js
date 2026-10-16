@@ -12,12 +12,14 @@ export function imageName(target) {
 
 // Conservative standalone directives only. Unhandled delivery syntax keeps
 // the existing source-window fallback rather than guessing a rewritten path.
-export function imageDirectives(source) {
+export function mediaDirectives(source) {
   return [...source.matchAll(/^[\t ]{0,3}(MEDIA:[\t ]*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\r\n]+?)))[\t ]*\r?$/gm)]
     .flatMap(match => {
       const target = match[2] ?? match[3] ?? match[4]
-      if (!target || target !== target.trim() || !isImageTarget(target)) return []
+      if (!target || target !== target.trim() || !(target.includes('/') || target.includes('\\') || /\.[^.]/.test(target))) return []
+      // Audio/video use different controls and remain unsupported here.
+      if (/\.(?:avi|flac|m4a|mkv|mov|mp3|mp4|ogg|opus|wav|webm)(?:[?#].*)?$/i.test(target)) return []
       const start = match.index + match[0].indexOf('MEDIA:')
-      return [{ target, start, end: start + match[1].length }]
+      return [{ target, kind: isImageTarget(target) ? 'image' : 'attachment', start, end: start + match[1].length }]
     })
 }
