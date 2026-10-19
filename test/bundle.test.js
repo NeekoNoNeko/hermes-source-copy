@@ -20,7 +20,10 @@ test('production ESM bundle loads, registers and copies using SDK alone', async 
   fileSnapshot.innerHTML = await readFile('test/fixtures/hermes-media-file.html', 'utf8')
   const fileParagraph = [...f.doc.querySelectorAll('p')].find(p => p.textContent.startsWith('MEDIA:'))
   fileParagraph.replaceChildren(fileSnapshot.content.querySelector('span[title].truncate.flex-1').parentElement)
-  const { host } = fakeHost([{ role: 'assistant', text: f.source }])
+  const old = f.root.cloneNode(true)
+  old.querySelector('.aui-md').innerHTML = '<p>重复的旧上下文</p>'
+  f.root.parentElement.append(old, old.cloneNode(true))
+  const { host } = fakeHost([{ role: 'assistant', text: f.source }, { role: 'assistant', text: '重复的旧上下文' }])
   const ctx = fakeContext()
   const contributions = []
   ctx.registerMany = rows => { contributions.push(...rows) }

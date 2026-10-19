@@ -14,6 +14,8 @@ An independent community **Desktop-only** plugin, using the [official ESM SDK](h
 
 The repository includes a **prebuilt root `plugin.js`**, which the official installer detects as a standalone Desktop plugin. Git installation needs Git, but no Node.js, npm build, Python, or API key. There is no Agent plugin manifest. This is a Git-installable community repository; it does not claim inclusion in the official catalog. See the [official Git installation guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins).
 
+**v1.0.9:** fixes unrelated duplicated or out-of-order display context invalidating every visible match. A reply with exactly one complete source candidate can copy independently. Repeated candidates still require a valid context proof; cross-message selections must additionally use distinct source rows in increasing history order.
+
 **v1.0.8:** also maps standalone file `MEDIA:` directives to verified file cards, including scripts, documents and extensionless files. Surrounding text, a selected card and whole replies retain original source. Card selections copy the complete original directive, not a reconstructed Markdown link; copying never opens or runs the file.
 
 **v1.0.7:** recognizes standalone image `MEDIA:` directives and image-delivery `#media:` links across loading, loaded and failed image states. Surrounding prose, lists and code can copy without the image blocking the reply. An image selected without proof of its original path still opens the source window; its filename or data URL is never treated as path proof.
@@ -41,7 +43,7 @@ Update through **Capabilities → Plugins → Install from Git**, using the same
 - Complete ordered items and selections across sibling items retain their original number markers. A phrase inside a single ordered item does not gain a number, even when it starts at the first word. Quotes, unordered lists, headings, and code blocks retain their original markers. Selections contained in one table cell copy only the selected original content. Crossing cells or extending outside a cell copies the **entire original table**.
 - Standalone file `MEDIA:` lines map to file cards using the complete target, verified basename and body order. Selecting a card copies its complete original `MEDIA:` line with original quotes and spacing. Known media links still copy their original Markdown. No file action runs during copying.
 - Standalone `MEDIA:` image lines and image-delivery `#media:` links are matched in body order, without reading their files. Non-image selections can copy around them. If the selection touches an image, its display URL must exactly prove the original target; otherwise use the source window, including for whole-reply selections spanning that image. Ordinary Markdown images, other media and unsupported delivery syntax may still need the source window.
-- Selections across messages in the same chat join in display order using two newlines, without role labels.
+- A complete body with exactly one source candidate remains copyable even when unrelated display context is inconsistent. Multiple candidates still require a unique ordered context proof. Selections across messages in the same chat must use distinct source rows in increasing history order, then join in display order using two newlines, without role labels. Reused or inverted source rows open the source window.
 - Clipboard output is only `text/plain`; rich-text data cannot override the source.
 - Inputs, terminals, settings, reasoning sections, and empty selections keep normal copying.
 

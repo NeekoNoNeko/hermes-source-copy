@@ -44,6 +44,8 @@ export function startController(host, ctx, { doc = document, win = window } = {}
     })
     const visible = projections.filter(hasSource)
     const matched = matchHistory(visible, rows)
+    const positions = new Map(rows.map((row, index) => [row, index]))
+    let previous = -1
     const selectedRows = []
     const selected = projections.filter(p => selection.selected.some(s => s.root === p.root) &&
       p.tokens.some(t => t.members.some(unit => unitIntersects(selection.range, unit))))
@@ -52,6 +54,9 @@ export function startController(host, ctx, { doc = document, win = window } = {}
       const index = visible.indexOf(projection)
       const row = matched[index]
       if (!row?.model) throw new MappingError('消息与原文无法唯一匹配')
+      const position = positions.get(row)
+      if (!(position > previous)) throw new MappingError('跨消息选区的原文顺序无法确认，请分别选择单条回复')
+      previous = position
       selectedRows.push(row)
       return extractSource(row.model, ...selectedTokenSpan(alignProjection(projection, row.model), selection.range))
     })

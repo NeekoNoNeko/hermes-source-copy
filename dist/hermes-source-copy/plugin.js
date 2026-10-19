@@ -1,4 +1,4 @@
-// Hermes Source Copy 1.0.8 — MIT — built for Hermes Desktop ac28abc96c
+// Hermes Source Copy 1.0.9 — MIT — built for Hermes Desktop ac28abc96c
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -11447,7 +11447,8 @@ function matchHistory(visible, history) {
   }
   return candidates.map((_, row) => {
     const valid = [...forward[row]].filter((index2) => backward[row].has(index2));
-    return valid.length === 1 ? history[valid[0]] : null;
+    if (valid.length === 1) return history[valid[0]];
+    return candidates[row].length === 1 ? history[candidates[row][0]] : null;
   });
 }
 
@@ -11803,6 +11804,8 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
     });
     const visible = projections.filter(hasSource);
     const matched = matchHistory(visible, rows);
+    const positions = new Map(rows.map((row, index2) => [row, index2]));
+    let previous4 = -1;
     const selectedRows = [];
     const selected = projections.filter((p) => selection.selected.some((s) => s.root === p.root) && p.tokens.some((t) => t.members.some((unit) => unitIntersects(selection.range, unit))));
     if (!selected.length) throw new MappingError("\u6D88\u606F\u4E0E\u539F\u6587\u65E0\u6CD5\u552F\u4E00\u5339\u914D");
@@ -11810,6 +11813,9 @@ function startController(host2, ctx, { doc = document, win = window } = {}) {
       const index2 = visible.indexOf(projection);
       const row = matched[index2];
       if (!row?.model) throw new MappingError("\u6D88\u606F\u4E0E\u539F\u6587\u65E0\u6CD5\u552F\u4E00\u5339\u914D");
+      const position2 = positions.get(row);
+      if (!(position2 > previous4)) throw new MappingError("\u8DE8\u6D88\u606F\u9009\u533A\u7684\u539F\u6587\u987A\u5E8F\u65E0\u6CD5\u786E\u8BA4\uFF0C\u8BF7\u5206\u522B\u9009\u62E9\u5355\u6761\u56DE\u590D");
+      previous4 = position2;
       selectedRows.push(row);
       return extractSource(row.model, ...selectedTokenSpan(alignProjection(projection, row.model), selection.range));
     });

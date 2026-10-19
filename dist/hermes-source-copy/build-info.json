@@ -1,7 +1,7 @@
 {
   "id": "hermes-source-copy",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "hermesBaseline": "ac28abc96c",
-  "sha256": "999f9c60f45e8d5c6d3f75fc9784367c5f9bce02612b6aa8873e1684b8ef5dd2",
-  "bytes": 427068
+  "sha256": "4c8fda7c39c968d02b9b5bf3349cf4f85f80d14ebe266b711aecac2672d2cd47",
+  "bytes": 427520
 }

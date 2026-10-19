@@ -254,8 +254,10 @@ export function selectedTokenSpan(projection, range) {
   return [selected[0], selected.at(-1) + 1, { fullCodeSpans }]
 }
 
-// Prove that all selected rows refer to one monotonically ordered history.
-// Multiple valid embeddings are ambiguous, including repeated identical text.
+// Ordered visible context can resolve repeated bodies. If unrelated context
+// is inconsistent (e.g. a duplicated display root), a body with exactly one
+// complete source candidate remains independently provable. The controller
+// checks source order again for the rows actually selected across messages.
 export function matchHistory(visible, history) {
   const candidates = visible.map(p => {
     // Renderer ids use live/earliest-part timing, which can differ from the
@@ -284,6 +286,7 @@ export function matchHistory(visible, history) {
   }
   return candidates.map((_, row) => {
     const valid = [...forward[row]].filter(index => backward[row].has(index))
-    return valid.length === 1 ? history[valid[0]] : null
+    if (valid.length === 1) return history[valid[0]]
+    return candidates[row].length === 1 ? history[candidates[row][0]] : null
   })
 }
